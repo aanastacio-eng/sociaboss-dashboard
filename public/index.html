@@ -1,0 +1,2480 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SociaBoss - Monitoreo POS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Al imprimir, solo se ve el reporte de cuadre — todo lo demás se oculta. */
+        @media print {
+            /* display:none en cada hermano de nivel superior en vez de
+               "visibility:hidden" en todo *: con visibility, cualquier botón
+               de adentro que reciba "visibility:visible" desde otra regla
+               (pasaba con los de "Ver detalles" de la tabla de Monitoreo)
+               se cuela igual, porque un descendiente SÍ puede reactivar su
+               propia visibilidad aunque el padre esté oculto. display:none
+               en el padre no tiene ese escape: nada de adentro se pinta.
+               !important porque Tailwind inyecta su propio <style> después
+               de este bloque y puede ganarle sin eso. */
+            body > *:not(#areaImpresionCuadre) { display: none !important; }
+            #areaImpresionCuadre { display: block !important; padding: 24px; }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen font-sans overflow-x-hidden" id="cuerpoPrincipal">
+
+    <!-- PANTALLA DE LOGIN -->
+    <section id="pantallaLogin" class="min-h-screen flex items-center justify-center px-4 hidden">
+        <div class="bg-white p-8 rounded-xl shadow-sm border border-slate-200 max-w-sm w-full">
+            <h1 class="text-2xl font-bold text-slate-900 tracking-tight mb-1 text-center">SociaBoss</h1>
+            <p class="text-sm text-slate-500 mb-6 text-center">Ingresa con tu cuenta para continuar.</p>
+            <form id="formLogin" class="space-y-3">
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Email</label>
+                    <input type="email" id="loginEmail" required autocomplete="username" class="w-full border border-slate-300 text-sm p-2.5 rounded-lg">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Contraseña</label>
+                    <input type="password" id="loginPassword" required autocomplete="current-password" class="w-full border border-slate-300 text-sm p-2.5 rounded-lg">
+                </div>
+                <p id="loginError" class="text-xs text-rose-600 hidden"></p>
+                <button type="submit" id="btnLogin" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-4 rounded-lg text-sm transition-colors">
+                    Ingresar
+                </button>
+            </form>
+        </div>
+    </section>
+
+    <!-- APLICACIÓN (oculta hasta confirmar sesión) -->
+    <div id="appShell" class="hidden min-h-screen">
+
+        <!-- Menú lateral (drawer): empuja el contenido en vez de flotar encima -->
+        <!-- En celular es angosto empujar apenas deja una tira de contenido
+             cortado, así que ahí el menú ocupa la mayoría del ancho y se
+             superpone con fondo oscuro (patrón normal de app móvil). Desde
+             tablet (sm+) para arriba sí hay espacio real para empujar. -->
+        <nav id="navPrincipal" class="fixed top-0 left-0 h-full w-[80vw] max-w-xs sm:w-72 sm:max-w-none bg-white shadow-lg z-50 flex flex-col -translate-x-full transition-transform duration-200 ease-out">
+            <div class="flex items-center justify-between px-4 py-4 border-b border-slate-200">
+                <span class="font-bold text-slate-800">Menú</span>
+                <button onclick="cerrarMenuPrincipal()" aria-label="Cerrar menú" class="text-slate-400 hover:text-slate-600 text-2xl leading-none p-1">&times;</button>
+            </div>
+            <div class="flex-1 overflow-auto py-2">
+                <button onclick="irA('ventas')" class="w-full text-left px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">📋 Órdenes del Día</button>
+                <button onclick="irA('kpis')" class="w-full text-left px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">📊 KPIs</button>
+                <button id="btnNavCierre" onclick="irA('cierre')" class="w-full text-left px-5 py-3 text-sm font-medium text-slate-400 cursor-not-allowed" disabled title="Primero genere el Reporte Diario">🏢 Cierre de Caja</button>
+                <button id="btnNavHistorial" onclick="irA('historial')" class="hidden w-full text-left px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">📁 Historial de Cierres</button>
+                <button id="btnNavMetas" onclick="irA('metas')" class="hidden w-full text-left px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">🎯 Metas Mensuales</button>
+                <button id="btnNavComisiones" onclick="irA('comisiones')" class="hidden w-full text-left px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">💰 Comisiones</button>
+                <button id="btnNavUsuarios" onclick="irA('usuarios')" class="hidden w-full text-left px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">👥 Usuarios</button>
+            </div>
+            <div class="border-t border-slate-200 p-4">
+                <p id="nombreUsuarioHeader" class="text-xs font-medium text-slate-500 mb-2"></p>
+                <button onclick="cerrarSesion()" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 text-sm font-semibold px-3 py-2 rounded-lg transition-colors">Salir</button>
+            </div>
+        </nav>
+
+        <!-- Clic afuera del menú (sobre el contenido ya desplazado) lo cierra -->
+        <div id="fondoMenuPrincipal" onclick="cerrarMenuPrincipal()" class="hidden fixed inset-0 z-40 bg-slate-900/40 sm:bg-transparent"></div>
+
+        <!-- Contenido de la app: se desplaza a la derecha cuando el menú abre -->
+        <div id="appContenido" class="min-h-screen flex flex-col transition-transform duration-200 ease-out">
+        <!-- Encabezado de la aplicación -->
+        <header class="bg-white border-b border-slate-200 px-6 py-3 flex flex-wrap justify-between items-center gap-3">
+            <div class="relative">
+                <button id="btnMenuHamburguesa" onclick="alternarMenuPrincipal()" aria-label="Abrir menú" aria-expanded="false" class="text-slate-500 hover:bg-slate-100 hover:text-slate-700 text-xl leading-none p-2 rounded-lg transition-colors">☰</button>
+            </div>
+            <div class="flex items-center space-x-2">
+                <h1 class="text-base font-bold text-slate-800">SociaBoss</h1>
+                <span id="badgeRol" class="bg-slate-100 text-slate-600 text-[11px] font-bold px-2 py-0.5 rounded-full">...</span>
+            </div>
+            <div class="flex flex-wrap items-center gap-3">
+                <div class="flex items-center space-x-1 text-sm">
+                    <label class="text-slate-500">Fecha:</label>
+                    <input type="date" id="filtroFecha" onchange="ejecutarConsultaOdoo()" class="text-slate-700 border border-slate-300 p-1 rounded text-sm">
+                </div>
+                <div class="flex items-center space-x-1 text-sm">
+                    <label class="text-slate-500">Local:</label>
+                    <select id="selectorTienda" onchange="filtrarPorLocal()" class="text-slate-700 border border-slate-300 p-1 rounded text-sm">
+                        <option value="Lemaler Dorado">Lemaler Dorado</option>
+                        <option value="Lemaler Village">Lemaler Village</option>
+                        <option value="Lemaler Ceibos">Lemaler Ceibos</option>
+                        <option value="Lemaler Entrerios">Lemaler Entrerios</option>
+                        <option value="Lemaler Quito">Lemaler Quito</option>
+                        <option value="Mariola Village">Mariola Village</option>
+                        <option value="Mariola Ceibos">Mariola Ceibos</option>
+                        <option value="Lemaler Scala">Lemaler Scala</option>
+                    </select>
+                </div>
+            </div>
+        </header>
+
+        <!-- Contenido Principal -->
+        <main class="max-w-6xl w-full mx-auto p-4 flex-grow flex flex-col min-h-0">
+            <!-- PANTALLA VENTAS -->
+            <section id="pantallaVentas" class="bg-white rounded-lg shadow-sm p-6 border flex-1 flex flex-col min-h-0">
+                <div class="flex-1 flex flex-col min-h-0">
+                    <div class="flex justify-between items-center border-b pb-3 mb-4">
+                        <h2 class="text-lg font-bold text-slate-800">📋 Monitoreo de Órdenes (Odoo POS)</h2>
+                        <button id="btnGenerarReporte" onclick="abrirConfirmacionReporteDiario()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-lg flex items-center space-x-1">
+                            <span>Generar e Iniciar Reporte Diario</span>
+                        </button>
+                    </div>
+                    <div id="bannerSoloLectura" class="hidden mb-3 text-xs bg-slate-100 text-slate-600 border border-slate-200 rounded px-3 py-2">
+                        📌 Reporte diario ya enviado para esta tienda y fecha. Esto es una foto congelada del momento del envío — ya no se puede editar ni se actualiza con Odoo.
+                    </div>
+                    <div class="mb-3 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 w-fit">
+                        <label for="inputBaseApertura" class="text-xs font-bold text-slate-600 uppercase">Base de apertura</label>
+                        <span class="text-slate-400 text-sm">$</span>
+                        <input type="number" id="inputBaseApertura" step="0.01" min="0" placeholder="0.00" onchange="guardarBaseApertura()" class="w-28 border border-slate-300 rounded px-2 py-1 text-sm text-right">
+                        <span id="estadoBaseApertura" class="text-[11px] text-slate-400 min-w-[70px]"></span>
+                    </div>
+                    <div class="flex-1 overflow-auto border rounded min-h-0">
+                        <table class="min-w-full text-sm text-left text-slate-600">
+                            <thead class="bg-slate-100 text-slate-700 font-bold sticky top-0 text-xs uppercase">
+                                <tr>
+                                    <th class="px-4 py-2 whitespace-nowrap">ORDEN</th>
+                                    <th class="px-4 py-2 whitespace-nowrap">PUNTO DE VENTA</th>
+                                    <th class="px-4 py-2 text-right whitespace-nowrap">TOTAL</th>
+                                    <th class="px-4 py-2 text-center whitespace-nowrap">ACCIONES</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tablaVentasCuerpo" class="divide-y"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-4 mt-4 text-center bg-slate-50 border p-3 rounded">
+                    <div>
+                        <p class="text-xs font-semibold text-slate-400">ÓRDENES MOSTRADAS</p>
+                        <p id="totalTransacciones" class="text-xl font-bold text-slate-800">0</p>
+                    </div>
+                    <div>
+                        <p class="text-xs font-semibold text-slate-400">VENTA ACUMULADA</p>
+                        <p id="totalMontoDinero" class="text-xl font-bold text-emerald-600">$0.00</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- PANTALLA KPIs -->
+            <section id="pantallaKPIs" class="bg-white rounded-lg shadow-sm p-6 border hidden flex-1 flex flex-col min-h-0">
+                <div class="flex justify-between items-center border-b pb-3 mb-4 flex-wrap gap-2">
+                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">📊 KPIs</h2>
+                    <div class="flex items-center gap-2">
+                        <input type="month" id="kpiMes" onchange="cargarKPIs()" class="border p-1.5 rounded text-sm">
+                        <button onclick="cargarKPIs()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors">🔄 Actualizar</button>
+                    </div>
+                </div>
+
+                <div id="kpiError" class="hidden mb-4 text-xs bg-rose-50 text-rose-700 border border-rose-200 rounded px-3 py-2"></div>
+
+                <div class="flex-1 overflow-auto space-y-6">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div class="bg-slate-50 border rounded-lg p-4">
+                            <p class="text-xs font-semibold text-slate-400 uppercase">Ventas Hoy</p>
+                            <p id="kpiVentasHoy" class="text-2xl font-bold text-slate-800 mt-1">$0.00</p>
+                        </div>
+                        <div class="bg-slate-50 border rounded-lg p-4">
+                            <div class="flex justify-between items-start">
+                                <p class="text-xs font-semibold text-slate-400 uppercase">Meta Mensual</p>
+                                <button id="btnEditarMeta" onclick="editarMetaMensual()" class="hidden text-[10px] font-bold text-blue-600 hover:text-blue-800">✏️ Editar</button>
+                            </div>
+                            <p id="kpiProgresoPct" class="text-2xl font-bold text-slate-800 mt-1">—</p>
+                            <div class="mt-2">
+                                <div class="w-full bg-slate-200 rounded-full h-2">
+                                    <div id="kpiBarraProgreso" class="h-2 rounded-full bg-emerald-500" style="width:0%"></div>
+                                </div>
+                                <p id="kpiMetaMensual" class="text-[11px] text-slate-500 mt-1">—</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h3 class="text-xs font-bold text-slate-700 uppercase mb-2">Ventas diarias — este mes vs. mes anterior</h3>
+                        <div id="kpiGraficoContenedor" class="border rounded-lg p-3 overflow-x-auto"></div>
+                    </div>
+
+                    <div>
+                        <h3 class="text-xs font-bold text-slate-700 uppercase mb-2">Aporte de cada vendedora hacia la meta</h3>
+                        <div id="kpiVendedoras" class="space-y-2"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- PANTALLA CIERRE -->
+            <section id="pantallaCierre" class="bg-white rounded-lg shadow-sm p-6 border hidden flex-1 flex flex-col justify-center min-h-0">
+              <div class="max-w-xl mx-auto w-full">
+                <div class="flex items-center justify-between gap-2 mb-2">
+                    <h2 class="text-lg font-bold text-slate-800">🏢 Formulario de Cierre de Caja Diario</h2>
+                    <button type="button" onclick="imprimirReporteCuadre()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap">🖨️ Imprimir Cuadre</button>
+                </div>
+                <p class="text-xs bg-slate-50 text-slate-600 border border-slate-200 p-3 rounded-lg mb-4">⚠️ Registre los documentos obligatorios para autorizar el cierre formal de la tienda seleccionada.</p>
+
+                <form id="formSesionCierre" class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Local que Reporta</label>
+                        <input type="text" id="cierreTiendaNombre" readonly class="w-full bg-slate-100 border text-sm p-2 rounded font-semibold cursor-not-allowed">
+                    </div>
+                    <div class="p-3 bg-slate-50 border rounded space-y-3">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1">1. Resumen de Caja (X / Z) — imagen o PDF</label>
+                            <input type="file" id="fileResumen" accept="image/*,application/pdf" class="w-full text-xs text-slate-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1">2. Cierre de Lote (Voucher) — imagen o PDF</label>
+                            <input type="file" id="fileLote" accept="image/*,application/pdf" class="w-full text-xs text-slate-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-700 mb-1">3. Depósito / Transferencia Bancaria — imagen o PDF</label>
+                            <input type="file" id="fileDeposito" accept="image/*,application/pdf" class="w-full text-xs text-slate-500">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Observaciones del Cierre (opcional)</label>
+                        <textarea id="inputObservacionesCierre" rows="3" placeholder="Ej: faltante de $5 en caja, boleta ilegible, diferencia por vuelto mal entregado..." class="w-full border text-sm p-2 rounded"></textarea>
+                        <p class="text-[11px] text-slate-400 mt-1">Cualquier novedad de este cierre. El admin la verá en Historial de Cierres al auditar.</p>
+                    </div>
+                    <button type="submit" id="btnSubirCierre" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-lg text-sm transition-colors">Subir Documentos y Cerrar Caja</button>
+                </form>
+              </div>
+            </section>
+
+            <!-- PANTALLA HISTORIAL (módulo propio, solo admin) -->
+            <section id="pantallaHistorial" class="bg-white rounded-lg shadow-sm p-6 border hidden flex-1 flex flex-col min-h-0">
+                <div class="flex justify-between items-center border-b pb-3 mb-4">
+                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">📁 Historial de Cierres Registrados</h2>
+                    <button onclick="cargarHistorialCierres()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors">
+                        🔄 Actualizar Historial
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 bg-slate-50 border rounded p-3 mb-4 text-xs">
+                    <div>
+                        <label class="block font-bold text-slate-500 uppercase mb-1">Tienda</label>
+                        <select id="filtroHistorialTienda" onchange="aplicarFiltrosHistorial()" class="w-full border p-1.5 rounded text-xs">
+                            <option value="">Todas</option>
+                            <option value="Lemaler Dorado">Lemaler Dorado</option>
+                            <option value="Lemaler Village">Lemaler Village</option>
+                            <option value="Lemaler Ceibos">Lemaler Ceibos</option>
+                            <option value="Lemaler Entrerios">Lemaler Entrerios</option>
+                            <option value="Lemaler Quito">Lemaler Quito</option>
+                            <option value="Mariola Village">Mariola Village</option>
+                            <option value="Mariola Ceibos">Mariola Ceibos</option>
+                            <option value="Lemaler Scala">Lemaler Scala</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-500 uppercase mb-1">Estado</label>
+                        <select id="filtroHistorialEstado" onchange="aplicarFiltrosHistorial()" class="w-full border p-1.5 rounded text-xs">
+                            <option value="">Todos</option>
+                            <option value="0">⏳ Pendiente</option>
+                            <option value="1">✅ Aprobado</option>
+                            <option value="2">❌ Rechazado</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-500 uppercase mb-1">Desde</label>
+                        <input type="date" id="filtroHistorialDesde" onchange="aplicarFiltrosHistorial()" class="w-full border p-1.5 rounded text-xs">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-500 uppercase mb-1">Hasta</label>
+                        <input type="date" id="filtroHistorialHasta" onchange="aplicarFiltrosHistorial()" class="w-full border p-1.5 rounded text-xs">
+                    </div>
+                    <div class="flex items-end">
+                        <button onclick="limpiarFiltrosHistorial()" class="w-full bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold py-1.5 rounded text-xs">✕ Limpiar</button>
+                    </div>
+                </div>
+
+                <div class="flex-1 overflow-auto rounded border min-h-0">
+                    <table class="min-w-full table-auto text-sm text-left text-slate-600">
+                        <thead class="bg-slate-100 text-slate-700 uppercase text-xs font-bold">
+                            <tr>
+                                <th class="px-4 py-3 whitespace-nowrap">Fecha</th>
+                                <th class="px-4 py-3 whitespace-nowrap">Local / Tienda</th>
+                                <th class="px-4 py-3 whitespace-nowrap">Usuario</th>
+                                <th class="px-4 py-3 text-center whitespace-nowrap">Estado de Aprobación</th>
+                                <th class="px-4 py-3 text-center whitespace-nowrap">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tablaHistorialCuerpo" class="divide-y">
+                            <tr>
+                                <td colspan="5" class="text-center py-4 text-slate-400">Cargando historial...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- PANTALLA METAS MENSUALES (módulo propio, solo admin) -->
+            <section id="pantallaMetas" class="bg-white rounded-lg shadow-sm p-6 border hidden flex-1 flex flex-col min-h-0">
+                <div class="flex justify-between items-center border-b pb-3 mb-4 flex-wrap gap-2">
+                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">🎯 Metas Mensuales por Tienda</h2>
+                    <input type="month" id="metasMes" onchange="cargarMetasMensuales()" class="border p-1.5 rounded text-sm">
+                </div>
+                <div class="flex-1 overflow-auto rounded border min-h-0">
+                    <table class="min-w-full text-sm text-left text-slate-600">
+                        <thead class="bg-slate-100 text-slate-700 uppercase text-xs font-bold">
+                            <tr>
+                                <th class="px-4 py-3 whitespace-nowrap">Tienda</th>
+                                <th class="px-4 py-3 text-right whitespace-nowrap">Meta Mensual</th>
+                                <th class="px-4 py-3 text-center whitespace-nowrap">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tablaMetasCuerpo" class="divide-y">
+                            <tr><td colspan="3" class="text-center py-6 text-slate-400">Cargando...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- PANTALLA COMISIONES (módulo propio, solo admin) -->
+            <section id="pantallaComisiones" class="bg-white rounded-lg shadow-sm p-6 border hidden flex-1 flex flex-col min-h-0">
+                <div class="flex justify-between items-center border-b pb-3 mb-4 flex-wrap gap-2">
+                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">💰 Reporte de Comisiones</h2>
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <label class="text-xs text-slate-500">Desde</label>
+                        <input type="date" id="comisionesDesde" class="border p-1.5 rounded text-sm">
+                        <label class="text-xs text-slate-500">Hasta</label>
+                        <input type="date" id="comisionesHasta" class="border p-1.5 rounded text-sm">
+                        <button onclick="cargarComisiones()" class="bg-slate-800 hover:bg-slate-950 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors">Calcular</button>
+                    </div>
+                </div>
+                <p class="text-[11px] text-slate-400 mb-3">Comisión = 2% sobre Efectivo (Caja + Transferencia + Cheque, sin IVA) + 2% sobre Tarjeta (sin IVA, menos retención de tarjeta 5.18%). No incluye Cuenta de cliente ni Giftcard. Se reparte en partes iguales entre los cajeros que vendieron en cada tienda durante el periodo.</p>
+                <div class="flex-1 overflow-auto rounded border min-h-0">
+                    <table class="min-w-full text-sm text-left text-slate-600">
+                        <thead class="bg-slate-100 text-slate-700 uppercase text-xs font-bold">
+                            <tr>
+                                <th class="px-4 py-3 whitespace-nowrap">Tienda</th>
+                                <th class="px-4 py-3 text-right whitespace-nowrap">Total Efectivo</th>
+                                <th class="px-4 py-3 text-right whitespace-nowrap">Subtotal Efectivo</th>
+                                <th class="px-4 py-3 text-right whitespace-nowrap">Total TC</th>
+                                <th class="px-4 py-3 text-right whitespace-nowrap">Subtotal TC</th>
+                                <th class="px-4 py-3 text-right whitespace-nowrap">Total Comisión</th>
+                                <th class="px-4 py-3 text-center whitespace-nowrap">Colaboradores</th>
+                                <th class="px-4 py-3 text-right whitespace-nowrap">Comisión x Colaborador</th>
+                                <th class="px-4 py-3 text-center whitespace-nowrap">Detalle</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tablaComisionesCuerpo" class="divide-y">
+                            <tr><td colspan="9" class="text-center py-6 text-slate-400">Elegí un rango de fechas y presioná Calcular.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- PANTALLA USUARIOS (módulo propio, solo admin) -->
+            <section id="pantallaUsuarios" class="bg-white rounded-lg shadow-sm p-6 border hidden flex-1 flex flex-col min-h-0">
+                <div class="flex justify-between items-center border-b pb-3 mb-4">
+                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">👥 Usuarios del Sistema</h2>
+                    <button onclick="cargarUsuarios()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors">
+                        🔄 Actualizar
+                    </button>
+                </div>
+
+                <form id="formNuevoUsuario" class="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 border rounded p-4 mb-6">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Nombre</label>
+                        <input type="text" id="nuevoUsuarioNombre" required class="w-full border p-2 rounded text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Email</label>
+                        <input type="email" id="nuevoUsuarioEmail" required class="w-full border p-2 rounded text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Contraseña</label>
+                        <input type="password" id="nuevoUsuarioPassword" required minlength="6" class="w-full border p-2 rounded text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Rol</label>
+                        <select id="nuevoUsuarioRol" onchange="alternarCampoTiendaUsuario()" class="w-full border p-2 rounded text-sm">
+                            <option value="usuario">Usuario (una sola tienda)</option>
+                            <option value="admin">Administrador (ve y gestiona todo)</option>
+                        </select>
+                    </div>
+                    <div id="contenedorTiendaNuevoUsuario" class="sm:col-span-2">
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Tienda asignada</label>
+                        <select id="nuevoUsuarioTienda" class="w-full border p-2 rounded text-sm">
+                            <option value="Lemaler Dorado">Lemaler Dorado</option>
+                            <option value="Lemaler Village">Lemaler Village</option>
+                            <option value="Lemaler Ceibos">Lemaler Ceibos</option>
+                            <option value="Lemaler Entrerios">Lemaler Entrerios</option>
+                            <option value="Lemaler Quito">Lemaler Quito</option>
+                            <option value="Mariola Village">Mariola Village</option>
+                            <option value="Mariola Ceibos">Mariola Ceibos</option>
+                            <option value="Lemaler Scala">Lemaler Scala</option>
+                        </select>
+                    </div>
+                    <div class="sm:col-span-2">
+                        <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 rounded-lg text-sm transition-colors">➕ Crear Usuario</button>
+                    </div>
+                </form>
+
+                <div class="grid grid-cols-1 sm:grid-cols-4 gap-2 bg-slate-50 border rounded p-3 mb-4 text-xs">
+                    <div class="sm:col-span-2">
+                        <label class="block font-bold text-slate-500 uppercase mb-1">Buscar</label>
+                        <input type="text" id="filtroUsuariosTexto" oninput="aplicarFiltrosUsuarios()" placeholder="Nombre o email..." class="w-full border p-1.5 rounded text-xs">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-500 uppercase mb-1">Rol</label>
+                        <select id="filtroUsuariosRol" onchange="aplicarFiltrosUsuarios()" class="w-full border p-1.5 rounded text-xs">
+                            <option value="">Todos</option>
+                            <option value="admin">Admin</option>
+                            <option value="usuario">Usuario</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block font-bold text-slate-500 uppercase mb-1">Estado</label>
+                        <select id="filtroUsuariosEstado" onchange="aplicarFiltrosUsuarios()" class="w-full border p-1.5 rounded text-xs">
+                            <option value="">Todos</option>
+                            <option value="activo">Activo</option>
+                            <option value="inactivo">Inactivo</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="flex-1 overflow-auto rounded border min-h-0">
+                    <table class="min-w-full text-sm text-left text-slate-600">
+                        <thead class="bg-slate-100 text-slate-700 uppercase text-xs font-bold">
+                            <tr>
+                                <th class="px-4 py-3 whitespace-nowrap">Nombre</th>
+                                <th class="px-4 py-3 whitespace-nowrap">Email</th>
+                                <th class="px-4 py-3 whitespace-nowrap">Rol</th>
+                                <th class="px-4 py-3 whitespace-nowrap">Tienda</th>
+                                <th class="px-4 py-3 text-center whitespace-nowrap">Estado</th>
+                                <th class="px-4 py-3 text-center whitespace-nowrap">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tablaUsuariosCuerpo" class="divide-y">
+                            <tr><td colspan="6" class="text-center py-6 text-slate-400">Cargando usuarios...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+        </div>
+    </div>
+
+    <!-- MODAL DETALLE DE VENTA Y COMPROBANTE -->
+    <div id="modalVenta" onclick="if(event.target === this) cerrarModalVenta()" class="fixed inset-0 bg-slate-900 bg-opacity-50 flex items-center justify-center hidden z-50 p-4">
+        <div class="bg-white rounded-lg shadow-lg border border-slate-200 max-w-md w-full overflow-hidden">
+            <div class="bg-slate-800 text-white px-4 py-3 flex justify-between items-center">
+                <h3 id="modalTitulo" class="font-bold text-sm">Detalle de Venta</h3>
+                <button onclick="cerrarModalVenta()" class="text-slate-400 hover:text-white font-bold">&times;</button>
+            </div>
+            <div class="p-4 space-y-4">
+                <div>
+                    <h4 class="text-xs font-bold text-slate-400 uppercase mb-1">Productos</h4>
+                    <div id="modalProductosLista" class="bg-slate-50 border rounded p-2 text-xs divide-y space-y-1"></div>
+                </div>
+                <div class="grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                        <span class="font-bold text-slate-500">Tipo de Pago:</span>
+                        <p id="modalTipoPago" class="font-semibold text-slate-800">-</p>
+                    </div>
+                    <div class="text-right">
+                        <span class="font-bold text-slate-500">Total Venta:</span>
+                        <p id="modalTotal" class="text-base font-bold text-slate-900">$0.00</p>
+                    </div>
+                </div>
+                <div id="modalContenedorImagen"></div>
+                <hr>
+                <form id="formComprobanteVenta" class="space-y-2">
+                    <label class="block text-xs font-bold text-slate-700">Subir Comprobante de esta Venta</label>
+                    <input type="file" id="fileComprobanteVenta" accept="image/*,application/pdf" required class="w-full text-xs text-slate-500">
+                    <input type="submit" id="btnSubirComprobante" value="Guardar Comprobante" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-1.5 rounded-lg text-xs transition-colors text-center cursor-pointer">
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL AUDITORÍA DE CIERRE (Totalmente independiente de Odoo al consultar el Historial) -->
+    <div id="modalAuditoriaCierre" onclick="if(event.target === this) cerrarModalAuditoria()" class="fixed inset-0 bg-slate-900 bg-opacity-50 flex items-center justify-center hidden z-50 p-4 overflow-y-auto">
+        <div class="bg-white rounded-lg shadow-lg border border-slate-200 max-w-xl w-full overflow-hidden my-8">
+            <div class="bg-slate-800 text-white px-4 py-3 flex justify-between items-center">
+                <h3 class="font-bold text-sm flex items-center gap-1">🕵️ Auditar y Validar Cierre de Caja</h3>
+                <button onclick="cerrarModalAuditoria()" class="text-white hover:text-slate-200 font-bold text-lg">&times;</button>
+            </div>
+            <div class="p-5 space-y-4 max-h-[80vh] overflow-y-auto">
+                <div class="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded text-xs border">
+                    <div><span class="text-slate-400 block">LOCAL:</span><strong id="auditoriaLocal" class="text-slate-800 text-sm"></strong></div>
+                    <div><span class="text-slate-400 block">FECHA:</span><strong id="auditoriaFecha" class="text-slate-800 text-sm"></strong></div>
+                    <div class="col-span-2"><span class="text-slate-400 block">CAJERO:</span><strong id="auditoriaUsuario" class="text-slate-600"></strong></div>
+                </div>
+
+                <div id="auditoriaObservacionesWrap" class="hidden text-xs bg-amber-50 text-amber-800 border border-amber-200 rounded-lg px-3 py-2">
+                    <span class="font-bold uppercase block mb-1">📝 Observaciones del cajero</span>
+                    <p id="auditoriaObservaciones" class="whitespace-pre-line"></p>
+                </div>
+
+                <div>
+                    <h4 class="text-xs font-bold text-slate-700 uppercase mb-2">📂 Documentación Entregada (Haga clic para abrir)</h4>
+                    <div class="space-y-2">
+                        <a id="auditoriaLinkResumen" target="_blank" class="flex items-center justify-between p-2 text-xs bg-slate-50 text-slate-700 hover:bg-slate-100 rounded-lg border border-slate-200 font-medium transition-colors">
+                            <span>1. Resumen de Caja (X / Z)</span> <span class="text-[10px] bg-slate-700 text-white px-2 py-0.5 rounded font-bold">VER ARCHIVO ↗</span>
+                        </a>
+                        <a id="auditoriaLinkLote" target="_blank" class="flex items-center justify-between p-2 text-xs bg-slate-50 text-slate-700 hover:bg-slate-100 rounded-lg border border-slate-200 font-medium transition-colors">
+                            <span>2. Cierre de Lote (Vouchers)</span> <span class="text-[10px] bg-slate-700 text-white px-2 py-0.5 rounded font-bold">VER ARCHIVO ↗</span>
+                        </a>
+                        <a id="auditoriaLinkDeposito" target="_blank" class="flex items-center justify-between p-2 text-xs bg-slate-50 text-slate-700 hover:bg-slate-100 rounded-lg border border-slate-200 font-medium transition-colors">
+                            <span>3. Depósito / Transferencia Bancaria</span> <span class="text-[10px] bg-slate-700 text-white px-2 py-0.5 rounded font-bold">VER ARCHIVO ↗</span>
+                        </a>
+                    </div>
+                </div>
+
+                <!-- SECCIÓN DE PEDIDOS ALMACENADOS EN TU BASE DE DATOS (NO EN ODOO) -->
+                <div class="border rounded-lg overflow-hidden">
+                    <div class="bg-slate-100 px-3 py-2 border-b flex justify-between items-center gap-2">
+                        <h4 class="text-xs font-bold text-slate-700 uppercase">📊 Órdenes Recuperadas de la Base de Datos</h4>
+                        <div class="flex items-center gap-2 shrink-0">
+                            <span id="auditoriaContadorRevisados" class="text-xs font-bold text-slate-600 bg-white px-2 py-0.5 rounded border">0/0 revisadas</span>
+                            <span id="auditoriaTotalPedidosMonto" class="text-xs font-bold text-emerald-700 bg-white px-2 py-0.5 rounded border">Total: $0.00</span>
+                        </div>
+                    </div>
+                    <p class="text-[11px] text-slate-500 px-3 py-1.5 bg-slate-50 border-b">Marca "OK" en cada venta después de comparar su comprobante contra el dato registrado. Esto no aprueba el cierre — eso lo hace el botón de abajo.</p>
+                    <div class="max-h-[50vh] overflow-y-auto divide-y text-xs" id="auditoriaListaPedidosOdoo">
+                        <!-- Se llena desde la BD interna del registro de cierre -->
+                    </div>
+                </div>
+
+                <hr class="my-2">
+
+                <div id="auditoriaBannerDecidido" class="hidden text-xs bg-slate-100 text-slate-600 border border-slate-200 rounded px-3 py-2 text-center font-semibold">
+                    🔒 Este cierre ya fue evaluado — la decisión es inmutable.
+                </div>
+                <div id="auditoriaAccionesDecision" class="flex gap-2 pt-2">
+                    <button id="btnAuditoriaRechazar" onclick="procesarVistoBueno(false)" class="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-bold py-2 rounded-lg text-xs transition-colors">
+                        ❌ Rechazar / Observaciones
+                    </button>
+                    <button id="btnAuditoriaAprobar" onclick="procesarVistoBueno(true)" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 rounded-lg text-xs transition-colors">
+                        ✅ Dar Visto Bueno (Aprobar)
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: confirmación previa a "Generar e Iniciar Reporte Diario" — Pagos
+         por método (de Odoo, solo lectura) y Conteo Físico (editable), con la
+         Diferencia calculada entre ambos, antes de congelar el día. -->
+    <div id="modalConfirmarReporteDiario" onclick="if(event.target === this) cerrarConfirmacionReporteDiario()" class="fixed inset-0 bg-slate-900 bg-opacity-50 flex items-center justify-center hidden z-50 p-4 overflow-y-auto">
+        <div class="bg-white rounded-lg shadow-lg border border-slate-200 max-w-2xl w-full overflow-hidden my-8">
+            <div class="bg-slate-800 text-white px-4 py-3 flex justify-between items-center">
+                <h3 class="font-bold text-sm flex items-center gap-1">📋 Confirmar Reporte Diario — Cuadre por Método de Pago</h3>
+                <button onclick="cerrarConfirmacionReporteDiario()" class="text-white hover:text-slate-200 font-bold text-lg">&times;</button>
+            </div>
+            <div class="p-5 space-y-4 max-h-[80vh] overflow-y-auto">
+                <div class="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded text-xs border">
+                    <div><span class="text-slate-400 block">LOCAL:</span><strong id="confirmacionReporteLocal" class="text-slate-800 text-sm"></strong></div>
+                    <div><span class="text-slate-400 block">FECHA:</span><strong id="confirmacionReporteFecha" class="text-slate-800 text-sm"></strong></div>
+                </div>
+
+                <p class="text-xs text-slate-500">"Pagos" viene de Odoo (no se edita). Ingresa el Conteo Físico real de cada método — la Diferencia se calcula sola.</p>
+
+                <div class="border rounded-lg overflow-hidden">
+                    <table class="min-w-full text-xs text-left">
+                        <thead class="bg-slate-100 text-slate-600 font-bold uppercase">
+                            <tr>
+                                <th class="px-3 py-2">Método</th>
+                                <th class="px-3 py-2 text-right">Pagos</th>
+                                <th class="px-3 py-2 text-right">Conteo Físico</th>
+                                <th class="px-3 py-2 text-right">Diferencia</th>
+                            </tr>
+                        </thead>
+                        <tbody id="confirmacionReporteCuerpo" class="divide-y"></tbody>
+                    </table>
+                </div>
+
+                <div class="flex gap-2 pt-2">
+                    <button type="button" onclick="imprimirComparacionCuadre()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-2 rounded-lg transition-colors">🖨️ Imprimir</button>
+                    <div class="flex-1"></div>
+                    <button type="button" onclick="cerrarConfirmacionReporteDiario()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2 rounded-lg text-xs transition-colors">Cancelar</button>
+                    <button type="button" id="btnConfirmarYGenerarReporte" onclick="confirmarYGenerarReporteDiario()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-lg text-xs transition-colors">✅ Confirmar y Generar Reporte</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: detalle del cálculo de comisiones de una tienda -->
+    <div id="modalDetalleComision" onclick="if(event.target === this) cerrarDetalleComision()" class="fixed inset-0 bg-slate-900 bg-opacity-50 flex items-center justify-center hidden z-50 p-4 overflow-y-auto">
+        <div class="bg-white rounded-lg shadow-lg border border-slate-200 max-w-2xl w-full overflow-hidden my-8">
+            <div class="bg-slate-800 text-white px-4 py-3 flex justify-between items-center">
+                <h3 id="detalleComisionTitulo" class="font-bold text-sm">💰 Detalle de Comisión</h3>
+                <button onclick="cerrarDetalleComision()" class="text-white hover:text-slate-200 font-bold text-lg">&times;</button>
+            </div>
+            <div class="p-5 space-y-4 max-h-[80vh] overflow-y-auto">
+                <div class="grid grid-cols-2 gap-4">
+                    <table class="w-full text-xs border rounded overflow-hidden">
+                        <thead class="bg-slate-100 text-slate-600"><tr><th class="px-2 py-1.5 text-left">Descripción</th><th class="px-2 py-1.5 text-right">Efectivo</th></tr></thead>
+                        <tbody id="detalleComisionEfectivo" class="divide-y"></tbody>
+                    </table>
+                    <table class="w-full text-xs border rounded overflow-hidden">
+                        <thead class="bg-slate-100 text-slate-600"><tr><th class="px-2 py-1.5 text-left">Descripción</th><th class="px-2 py-1.5 text-right">Tarjeta</th></tr></thead>
+                        <tbody id="detalleComisionTarjeta" class="divide-y"></tbody>
+                    </table>
+                </div>
+                <div class="border rounded overflow-hidden">
+                    <table class="w-full text-xs">
+                        <thead class="bg-slate-100 text-slate-600"><tr><th class="px-3 py-1.5 text-left">Colaborador/a</th><th class="px-3 py-1.5 text-right">Comisión</th></tr></thead>
+                        <tbody id="detalleComisionColaboradores" class="divide-y"></tbody>
+                        <tfoot>
+                            <tr class="border-t-2 border-slate-800 font-bold">
+                                <td class="px-3 py-2">TOTAL</td>
+                                <td id="detalleComisionTotal" class="px-3 py-2 text-right"></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tooltip del gráfico de KPIs (día a día vs. mes anterior) -->
+    <div id="kpiTooltip" class="hidden fixed z-50 bg-slate-800 text-white text-[11px] rounded-lg px-3 py-2 shadow-lg pointer-events-none whitespace-nowrap"></div>
+
+    <!-- Área de impresión del Reporte de Cuadre de Caja — invisible en pantalla,
+         solo se muestra cuando se llama a imprimir (ver @media print arriba). -->
+    <div id="areaImpresionCuadre" class="hidden"></div>
+
+    <!-- MODAL GENÉRICO DE DIÁLOGO (reemplaza alert/confirm/prompt del navegador) -->
+    <div id="modalDialogo" onclick="if(event.target === this) _cerrarDialogoComoCancelar()" class="fixed inset-0 bg-slate-900/40 flex items-center justify-center hidden z-[9999] p-4">
+        <div class="bg-white rounded-xl shadow-lg border border-slate-200 max-w-sm w-full overflow-hidden">
+            <div id="dialogoBarraColor" class="h-1.5 bg-rose-600"></div>
+            <div class="p-5">
+                <p id="dialogoMensaje" class="text-sm text-slate-700 whitespace-pre-line"></p>
+                <div id="dialogoContenedorInput" class="mt-3 hidden">
+                    <input type="text" id="dialogoInput" class="w-full border border-slate-300 text-sm p-2 rounded-lg">
+                </div>
+            </div>
+            <div class="flex gap-2 px-5 pb-5">
+                <button id="dialogoBtnCancelar" onclick="_clicCancelarDialogo()" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold py-2 rounded-lg text-sm hidden transition-colors">Cancelar</button>
+                <button id="dialogoBtnAceptar" onclick="_clicAceptarDialogo()" class="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-semibold py-2 rounded-lg text-sm transition-colors">Entendido</button>
+            </div>
+        </div>
+    </div>
+
+   <script>
+        let SESION_USUARIO = null;
+        let BASE_DATOS_VENTAS = [];
+        let HISTORIAL_CIERRES_MEMORIA = [];
+        let USUARIOS_MEMORIA = [];
+        let KPI_ACTUAL = null;
+        let _KPI_SERIE_ACTUAL = [];
+        let ID_VENTA_ACTUAL_MODAL = null;
+        let TIENDA_VENTA_ACTUAL_MODAL = null;
+        let ID_CIERRE_ACTUAL_AUDITORIA = null;
+        let VENTAS_FILTRADAS_LOCAL_ACTUAL = [];
+
+        // ══════════════════════════════════════════════════════════════
+        // DIÁLOGOS PROPIOS DE LA APP (reemplaza alert/confirm/prompt del
+        // navegador, que se ven "del explorador" y no del programa).
+        // ══════════════════════════════════════════════════════════════
+        let _dialogoResolver = null;
+
+        // La franja y el botón "Aceptar" usan el mismo color — así un aviso de
+        // éxito se ve verde de punta a punta, uno de error rojo, etc. (antes el
+        // botón quedaba siempre rojo sin importar el tipo de mensaje).
+        const _MAPA_COLOR_BOTON_DIALOGO = {
+            'bg-rose-600': 'bg-rose-600 hover:bg-rose-700',
+            'bg-emerald-600': 'bg-emerald-600 hover:bg-emerald-700',
+            'bg-amber-500': 'bg-amber-500 hover:bg-amber-600',
+            'bg-blue-600': 'bg-blue-600 hover:bg-blue-700',
+        };
+
+        function _abrirDialogo({ mensaje, conCancelar = false, conInput = false, valorInicial = '', textoAceptar = 'Entendido', textoCancelar = 'Cancelar', color = 'bg-rose-600' }) {
+            return new Promise((resolve) => {
+                _dialogoResolver = resolve;
+                document.getElementById("dialogoMensaje").innerText = mensaje;
+                document.getElementById("dialogoBarraColor").className = `h-1.5 ${color}`;
+
+                const contInput = document.getElementById("dialogoContenedorInput");
+                const input = document.getElementById("dialogoInput");
+                contInput.classList.toggle("hidden", !conInput);
+                input.value = valorInicial;
+
+                const btnCancelar = document.getElementById("dialogoBtnCancelar");
+                btnCancelar.classList.toggle("hidden", !conCancelar);
+                btnCancelar.innerText = textoCancelar;
+
+                const btnAceptar = document.getElementById("dialogoBtnAceptar");
+                btnAceptar.innerText = textoAceptar;
+                btnAceptar.className = `flex-1 text-white font-semibold py-2 rounded-lg text-sm transition-colors ${_MAPA_COLOR_BOTON_DIALOGO[color] || 'bg-slate-800 hover:bg-slate-900'}`;
+
+                document.getElementById("modalDialogo").classList.remove("hidden");
+                if (conInput) setTimeout(() => input.focus(), 50);
+            });
+        }
+
+        function _resolverDialogo(valor) {
+            document.getElementById("modalDialogo").classList.add("hidden");
+            if (_dialogoResolver) { _dialogoResolver(valor); _dialogoResolver = null; }
+        }
+
+        function _clicAceptarDialogo() {
+            const conInput = !document.getElementById("dialogoContenedorInput").classList.contains("hidden");
+            _resolverDialogo(conInput ? (document.getElementById("dialogoInput").value.trim() || null) : true);
+        }
+
+        function _clicCancelarDialogo() {
+            const conInput = !document.getElementById("dialogoContenedorInput").classList.contains("hidden");
+            _resolverDialogo(conInput ? null : false);
+        }
+
+        function _cerrarDialogoComoCancelar() { _clicCancelarDialogo(); }
+
+        // Reemplazo de alert(mensaje) — solo botón "Entendido".
+        function mostrarAviso(mensaje, color = 'bg-rose-600') {
+            return _abrirDialogo({ mensaje, conCancelar: false, textoAceptar: 'Entendido', color });
+        }
+
+        // Reemplazo de confirm(mensaje) — devuelve true/false.
+        function mostrarConfirmacion(mensaje, opciones = {}) {
+            return _abrirDialogo({
+                mensaje, conCancelar: true, color: 'bg-amber-500',
+                textoAceptar: opciones.textoAceptar || 'Confirmar',
+                textoCancelar: opciones.textoCancelar || 'Cancelar'
+            });
+        }
+
+        // Reemplazo de prompt(mensaje) — devuelve el texto o null si cancela/queda vacío.
+        function mostrarPrompt(mensaje, valorInicial = '') {
+            return _abrirDialogo({ mensaje, conCancelar: true, conInput: true, valorInicial, color: 'bg-blue-600', textoAceptar: 'Guardar' });
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // SESIÓN / LOGIN
+        // ══════════════════════════════════════════════════════════════
+        async function iniciarApp() {
+            try {
+                const resp = await fetch("/api/auth/me");
+                if (!resp.ok) throw new Error("sin-sesion");
+                SESION_USUARIO = await resp.json();
+                mostrarApp();
+            } catch (e) {
+                mostrarLogin();
+            }
+        }
+
+        function mostrarLogin() {
+            document.getElementById("pantallaLogin").classList.remove("hidden");
+            document.getElementById("appShell").classList.add("hidden");
+        }
+
+        function mostrarApp() {
+            document.getElementById("pantallaLogin").classList.add("hidden");
+            document.getElementById("appShell").classList.remove("hidden");
+            aplicarRolEnInterfaz();
+
+            const hoy = new Date().toISOString().split('T')[0];
+            document.getElementById("filtroFecha").value = hoy;
+
+            // Al refrescar (F5) o volver a entrar, seguimos en la misma
+            // pantalla en la que estaba en vez de siempre caer en Órdenes
+            // del Día. Si esa pantalla es exclusiva de admin y ya no lo es
+            // (ej. cambió de usuario en la misma pestaña), caemos a "ventas".
+            const pantallasAdmin = ['historial', 'usuarios', 'metas', 'comisiones'];
+            let pantallaGuardada = 'ventas';
+            try { pantallaGuardada = sessionStorage.getItem("socia_pantalla_actual") || 'ventas'; } catch (e) { /* modo privado, etc. */ }
+            if (pantallasAdmin.includes(pantallaGuardada) && SESION_USUARIO.rol !== 'admin') {
+                pantallaGuardada = 'ventas';
+            }
+
+            cambiarPantalla(pantallaGuardada);
+            ejecutarConsultaOdoo();
+        }
+
+        function aplicarRolEnInterfaz() {
+            const esAdmin = SESION_USUARIO.rol === 'admin';
+
+            document.getElementById("badgeRol").innerText = esAdmin ? "ADMIN" : "TIENDA";
+            document.getElementById("nombreUsuarioHeader").innerText =
+                `${SESION_USUARIO.nombre} · ${esAdmin ? 'Todas las tiendas' : (SESION_USUARIO.tienda || 'Sin tienda asignada')}`;
+
+            document.getElementById("btnNavHistorial").classList.toggle("hidden", !esAdmin);
+            document.getElementById("btnNavMetas").classList.toggle("hidden", !esAdmin);
+            document.getElementById("btnNavComisiones").classList.toggle("hidden", !esAdmin);
+            document.getElementById("btnNavUsuarios").classList.toggle("hidden", !esAdmin);
+
+            const selector = document.getElementById("selectorTienda");
+            if (esAdmin) {
+                selector.disabled = false;
+            } else {
+                if (SESION_USUARIO.tienda) selector.value = SESION_USUARIO.tienda;
+                selector.disabled = true;
+            }
+            document.getElementById("cierreTiendaNombre").value = selector.value;
+        }
+
+        document.getElementById("formLogin").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const email = document.getElementById("loginEmail").value.trim();
+            const password = document.getElementById("loginPassword").value;
+            const btn = document.getElementById("btnLogin");
+            const errorEl = document.getElementById("loginError");
+            errorEl.classList.add("hidden");
+            btn.disabled = true;
+            btn.innerText = "Ingresando...";
+            try {
+                const resp = await fetch("/api/auth/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email, password })
+                });
+                const datos = await resp.json();
+                if (!resp.ok) throw new Error(datos.detail || "No se pudo iniciar sesión.");
+                SESION_USUARIO = datos;
+                mostrarApp();
+            } catch (err) {
+                errorEl.innerText = err.message;
+                errorEl.classList.remove("hidden");
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "Ingresar";
+            }
+        });
+
+        async function cerrarSesion() {
+            try { await fetch("/api/auth/logout", { method: "POST" }); } catch (e) { /* seguimos igual */ }
+            try { sessionStorage.removeItem("socia_pantalla_actual"); } catch (e) { /* modo privado, etc. */ }
+            window.location.reload();
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // MONITOREO DE ÓRDENES (Odoo POS)
+        // ══════════════════════════════════════════════════════════════
+
+        // Mismo criterio que _normalizar_metodo_pago() en el backend: reduce el
+        // nombre real de Odoo (que varía por tienda, ej. "Caja Lemaler Quito") a
+        // una de las 5 categorías fijas del Reporte de Cuadre.
+        function normalizarMetodoPago(nombre) {
+            const n = (nombre || '').trim().toLowerCase();
+            if (n.startsWith('caja')) return 'Caja';
+            if (n.includes('cheque')) return 'Cheque';
+            if (n.includes('transferencia')) return 'Transferencia';
+            if (n.includes('tarjeta')) return 'Tarjeta';
+            if (n.includes('cuenta') && n.includes('cliente')) return 'Cuenta de cliente';
+            return nombre || 'No especificado';
+        }
+
+        // Los links de Drive tipo ".../file/d/{id}/view" sirven para abrir en
+        // una pestaña nueva, pero NO se pueden usar como src de un <img>: Drive
+        // devuelve ahí una página HTML, no la imagen cruda, y se ve como ícono roto.
+        // Extraemos el ID y armamos la URL de miniatura que sí renderiza inline.
+        function urlMiniaturaDrive(urlDrive) {
+            if (!urlDrive) return urlDrive;
+            const match = urlDrive.match(/\/d\/([^/]+)/);
+            return match ? `https://drive.google.com/thumbnail?id=${match[1]}&sz=w800` : urlDrive;
+        }
+
+        async function ejecutarConsultaOdoo() {
+            const fecha = document.getElementById("filtroFecha").value;
+            const cuerpo = document.getElementById("tablaVentasCuerpo");
+            cuerpo.innerHTML = `<tr><td colspan="4" class="text-center p-6 text-slate-400 font-medium">Consultando Odoo POS...</td></tr>`;
+
+            try {
+                const response = await fetch(`/api/ventas?fecha=${fecha}`);
+                if (response.status === 401) { mostrarLogin(); return; }
+                if (!response.ok) throw new Error("http-error");
+                BASE_DATOS_VENTAS = await response.json();
+                filtrarPorLocal();
+            } catch (e) {
+                cuerpo.innerHTML = `<tr><td colspan="4" class="text-center p-6 text-rose-600 font-medium">⚠️ Error de conexión con el servidor POS.</td></tr>`;
+            }
+        }
+
+        function filtrarPorLocal() {
+            const localSeleccionado = document.getElementById("selectorTienda").value;
+            document.getElementById("cierreTiendaNombre").value = localSeleccionado;
+
+            // El backend YA filtra por tienda si el usuario no es admin, pero un
+            // admin navega entre tiendas con el selector, así que igual filtramos
+            // del lado del cliente sobre lo que llegó.
+            VENTAS_FILTRADAS_LOCAL_ACTUAL = BASE_DATOS_VENTAS.filter(v => {
+                return v.tienda.toLowerCase().replace(/\s+/g,'') === localSeleccionado.toLowerCase().replace(/\s+/g,'');
+            });
+            renderizarTabla(VENTAS_FILTRADAS_LOCAL_ACTUAL);
+            sincronizarEstadoFormularioCierre();
+            sincronizarEstadoReporteDiario();
+            sincronizarBaseApertura();
+            // Si el admin está viendo KPIs y cambia de tienda en el header, refrescamos
+            // (solo cuando la pantalla está visible, para no gastar consultas de más).
+            if (!document.getElementById("pantallaKPIs").classList.contains("hidden")) cargarKPIs();
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // KPIs — ventas de hoy, meta mensual, comparativa diaria vs. mes
+        // anterior, y aporte de cada vendedora hacia la meta de la tienda.
+        // ══════════════════════════════════════════════════════════════
+        async function cargarKPIs() {
+            const inputMes = document.getElementById("kpiMes");
+            if (!inputMes.value) {
+                const hoy = new Date();
+                inputMes.value = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
+            }
+            const [anio, mes] = inputMes.value.split('-').map(Number);
+
+            let url = `/api/kpis?anio=${anio}&mes=${mes}`;
+            if (SESION_USUARIO && SESION_USUARIO.rol === 'admin') {
+                url += `&tienda=${encodeURIComponent(document.getElementById("selectorTienda").value)}`;
+            }
+
+            const errorEl = document.getElementById("kpiError");
+            errorEl.classList.add("hidden");
+
+            try {
+                const resp = await fetch(url);
+                if (resp.status === 401) { mostrarLogin(); return; }
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    throw new Error(err.detail || "No se pudieron cargar los KPIs.");
+                }
+                KPI_ACTUAL = await resp.json();
+
+                document.getElementById("kpiVentasHoy").innerText = `$${KPI_ACTUAL.ventas_hoy.toFixed(2)}`;
+
+                const barra = document.getElementById("kpiBarraProgreso");
+                const pctEl = document.getElementById("kpiProgresoPct");
+                const detalleMeta = document.getElementById("kpiMetaMensual");
+                if (KPI_ACTUAL.progreso_pct === null) {
+                    barra.style.width = "0%";
+                    pctEl.innerText = "—";
+                    detalleMeta.innerText = "Sin meta configurada para este mes.";
+                } else {
+                    const pct = KPI_ACTUAL.progreso_pct;
+                    barra.style.width = `${Math.min(pct, 100)}%`;
+                    barra.className = `h-2 rounded-full ${pct >= 100 ? 'bg-emerald-500' : pct >= 50 ? 'bg-amber-500' : 'bg-rose-500'}`;
+                    pctEl.innerText = `${pct}%`;
+                    detalleMeta.innerText = `$${KPI_ACTUAL.ventas_mes_actual.toFixed(2)} de $${KPI_ACTUAL.meta_mensual.toFixed(2)}`;
+                }
+
+                document.getElementById("btnEditarMeta").classList.toggle("hidden", !(SESION_USUARIO && SESION_USUARIO.rol === 'admin'));
+
+                dibujarGraficoKPI(KPI_ACTUAL.serie_diaria);
+                dibujarVendedoras(KPI_ACTUAL.vendedoras);
+            } catch (e) {
+                errorEl.innerText = `⚠️ ${e.message}`;
+                errorEl.classList.remove("hidden");
+            }
+        }
+
+        // Línea simple en SVG, sin librerías externas — coherente con el resto
+        // de la app, que no depende de ningún paquete de gráficos.
+        function dibujarGraficoKPI(serie) {
+            const contenedor = document.getElementById("kpiGraficoContenedor");
+            if (!serie || serie.length === 0) {
+                contenedor.innerHTML = `<p class="text-sm text-slate-400 text-center py-8">Sin datos para este mes.</p>`;
+                return;
+            }
+
+            const anchoPorDia = 24;
+            const ancho = Math.max(500, serie.length * anchoPorDia);
+            const alto = 220;
+            const margenSuperior = 10;
+            const margenInferior = 24;
+            const alturaGrafico = alto - margenSuperior - margenInferior;
+            const maxValor = Math.max(1, ...serie.map(d => Math.max(d.actual, d.anterior)));
+
+            const puntoX = (i) => (i / (serie.length - 1 || 1)) * (ancho - 20) + 10;
+            const puntoY = (v) => margenSuperior + alturaGrafico - (v / maxValor) * alturaGrafico;
+
+            const trazo = (campo) => serie.map((d, i) => `${i === 0 ? 'M' : 'L'}${puntoX(i).toFixed(1)},${puntoY(d[campo]).toFixed(1)}`).join(' ');
+
+            const etiquetas = serie.map((d, i) => {
+                const mostrar = serie.length <= 15 || d.dia === 1 || d.dia === serie.length || d.dia % 5 === 0;
+                if (!mostrar) return '';
+                return `<text x="${puntoX(i).toFixed(1)}" y="${alto - 6}" font-size="9" fill="#94a3b8" text-anchor="middle">${d.dia}</text>`;
+            }).join('');
+
+            // Un punto (oculto hasta el hover) por serie y por día, más una
+            // franja invisible por día que capta el mouse en toda su altura
+            // — así no hay que acertarle justo al pixel de la línea.
+            const anchoZona = (ancho - 20) / (serie.length - 1 || 1);
+            const puntosInteractivos = serie.map((d, i) => {
+                const x = puntoX(i).toFixed(1);
+                return `
+                    <circle cx="${x}" cy="${puntoY(d.actual).toFixed(1)}" r="3.5" fill="#10b981" class="kpi-punto" data-dia="${i}" data-serie="actual" opacity="0"></circle>
+                    <circle cx="${x}" cy="${puntoY(d.anterior).toFixed(1)}" r="3.5" fill="#94a3b8" class="kpi-punto" data-dia="${i}" data-serie="anterior" opacity="0"></circle>
+                    <rect x="${(puntoX(i) - anchoZona / 2).toFixed(1)}" y="0" width="${anchoZona.toFixed(1)}" height="${alto}" fill="transparent"
+                        onmouseenter="mostrarTooltipKPI(event, ${i})" onmouseleave="ocultarTooltipKPI()" style="cursor: crosshair"></rect>
+                `;
+            }).join('');
+
+            contenedor.innerHTML = `
+                <div class="flex items-center gap-4 mb-2 text-[11px] text-slate-600">
+                    <span class="flex items-center gap-1"><span class="w-3 h-0.5 bg-emerald-500 inline-block"></span> Este mes</span>
+                    <span class="flex items-center gap-1"><span class="w-3 h-0.5 bg-slate-300 inline-block"></span> Mes anterior</span>
+                </div>
+                <svg width="${ancho}" height="${alto}" viewBox="0 0 ${ancho} ${alto}" class="block" id="kpiSvgGrafico">
+                    <path d="${trazo('anterior')}" fill="none" stroke="#cbd5e1" stroke-width="2"/>
+                    <path d="${trazo('actual')}" fill="none" stroke="#10b981" stroke-width="2.5"/>
+                    <line id="kpiLineaGuia" x1="0" y1="0" x2="0" y2="${alto}" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="3,3" opacity="0"></line>
+                    ${etiquetas}
+                    ${puntosInteractivos}
+                </svg>
+            `;
+
+            _KPI_SERIE_ACTUAL = serie;
+        }
+
+        // Al pasar el mouse por un día: resalta los 2 puntos de ese día, mueve
+        // la línea guía, y posiciona un tooltip con los valores exactos.
+        function mostrarTooltipKPI(event, indice) {
+            const d = _KPI_SERIE_ACTUAL[indice];
+            const svg = document.getElementById("kpiSvgGrafico");
+            if (!d || !svg) return;
+
+            svg.querySelectorAll('.kpi-punto').forEach(p => {
+                p.setAttribute('opacity', p.dataset.dia === String(indice) ? '1' : '0');
+            });
+
+            const puntoActual = svg.querySelector(`circle[data-dia="${indice}"][data-serie="actual"]`);
+            const linea = document.getElementById("kpiLineaGuia");
+            if (puntoActual && linea) {
+                linea.setAttribute('x1', puntoActual.getAttribute('cx'));
+                linea.setAttribute('x2', puntoActual.getAttribute('cx'));
+                linea.setAttribute('opacity', '0.7');
+            }
+
+            const diferencia = d.actual - d.anterior;
+            const colorDif = diferencia >= 0 ? 'text-emerald-400' : 'text-rose-400';
+            const signoDif = diferencia >= 0 ? '+' : '';
+
+            const tooltip = document.getElementById("kpiTooltip");
+            tooltip.innerHTML = `
+                <div class="font-bold mb-1.5">Día ${d.dia}</div>
+                <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span> Este mes: <span class="font-semibold">$${d.actual.toFixed(2)}</span></div>
+                <div class="flex items-center gap-1.5 mt-0.5"><span class="w-2 h-2 rounded-full bg-slate-400 inline-block"></span> Mes anterior: <span class="font-semibold">$${d.anterior.toFixed(2)}</span></div>
+                <div class="mt-1.5 pt-1.5 border-t border-slate-600 ${colorDif}">${signoDif}$${diferencia.toFixed(2)} vs. mes anterior</div>
+            `;
+
+            const rect = event.target.getBoundingClientRect();
+            tooltip.style.left = `${rect.left + rect.width / 2}px`;
+            tooltip.style.top = `${rect.top}px`;
+            tooltip.style.transform = 'translate(-50%, calc(-100% - 10px))';
+            tooltip.classList.remove("hidden");
+        }
+
+        function ocultarTooltipKPI() {
+            const svg = document.getElementById("kpiSvgGrafico");
+            if (svg) {
+                svg.querySelectorAll('.kpi-punto').forEach(p => p.setAttribute('opacity', '0'));
+                const linea = document.getElementById("kpiLineaGuia");
+                if (linea) linea.setAttribute('opacity', '0');
+            }
+            document.getElementById("kpiTooltip").classList.add("hidden");
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // REPORTE DE CUADRE DE CAJA — suma de ventas por método de pago
+        // (efectivo, tarjeta, etc.) para reconciliar la caja física.
+        // Sin argumentos usa la fecha/tienda de la pantalla de Cierre de
+        // Caja; con argumentos (desde Auditoría) usa esos.
+        // ══════════════════════════════════════════════════════════════
+        async function imprimirReporteCuadre(fechaParam, tiendaParam) {
+            const fecha = fechaParam || document.getElementById("filtroFecha").value;
+            const tienda = tiendaParam || document.getElementById("cierreTiendaNombre").value;
+
+            if (!fecha || !tienda) {
+                await mostrarAviso("No se pudo determinar la fecha o la tienda para el reporte.");
+                return;
+            }
+
+            // Recordatorio antes de imprimir — no es obligatorio escribir algo,
+            // pero siempre se avisa por si hay alguna inconsistencia que anotar.
+            await mostrarAviso(
+                "Vas a imprimir el Reporte de Cuadre. Si detectaste alguna inconsistencia, ingrésala en \"Observaciones del Cierre\" antes de imprimir (no es obligatorio).",
+                'bg-amber-500'
+            );
+
+            let url = `/api/reporte-cuadre?fecha=${encodeURIComponent(fecha)}`;
+            if (SESION_USUARIO && SESION_USUARIO.rol === 'admin') url += `&tienda=${encodeURIComponent(tienda)}`;
+
+            try {
+                const resp = await fetch(url);
+                if (resp.status === 401) { mostrarLogin(); return; }
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    throw new Error(err.detail || "No se pudo generar el reporte.");
+                }
+                const datos = await resp.json();
+
+                if (datos.cantidad_ordenes === 0) {
+                    const seguir = await mostrarConfirmacion(
+                        `No hay ventas registradas internamente para ${tienda} el ${fecha}. Esto pasa si ese día todavía no se envió con "Generar e Iniciar Reporte Diario". ¿Imprimir de todas formas (saldría en $0)?`
+                    );
+                    if (!seguir) return;
+                }
+
+                // Estilos en línea (no clases de Tailwind): así el reporte se
+                // ve igual sin depender de que el CDN de Tailwind cargue bien
+                // justo en el momento de imprimir.
+                //
+                // Formato tipo "Cierre de caja registradora" de Odoo: una sección
+                // por método de pago (Caja, Cheque, Transferencia, Tarjeta, Cuenta
+                // de cliente, en ese orden fijo). "Conteo físico" y "Diferencia"
+                // muestran lo ya capturado en pantalla en Cierre de Caja; si
+                // todavía no se contó ese método, queda la línea en blanco para
+                // llenar a mano.
+                const campoOValor = (valor, esNegativoOk) => (valor !== null && valor !== undefined)
+                    ? `<span style="font-weight:bold;">${esNegativoOk && valor < 0 ? '-' : ''}$${Math.abs(valor).toFixed(2)}</span>`
+                    : `<span style="border-bottom:1px solid #94a3b8; width:110px; display:inline-block;">&nbsp;</span>`;
+
+                // Solo "Caja" es efectivo de verdad — ahí sí se cuenta físicamente
+                // (billetes/monedas). Para el resto (Cheque, Transferencia, Tarjeta,
+                // Cuenta de cliente) no hay nada que "contar" a mano, es un total que
+                // se saca de vouchers/comprobantes, así que la etiqueta cambia acorde.
+                const seccionesMetodo = (datos.por_metodo.length > 0 ? datos.por_metodo : []).map(m => {
+                    const etiquetaConteo = m.metodo === 'Caja' ? 'Conteo físico' : `Total ${m.metodo}`;
+                    return `
+                    <div style="margin-bottom:14px;">
+                        <div style="font-weight:bold; font-size:14px; border-bottom:1px solid #cbd5e1; padding-bottom:3px; margin-bottom:4px;">${m.metodo}</div>
+                        <div style="display:flex; justify-content:space-between; padding:3px 0;">
+                            <span>Pagos (${m.cantidad})</span>
+                            <span style="font-weight:bold;">$${m.monto.toFixed(2)}</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; padding:3px 0;">
+                            <span>${etiquetaConteo}</span>
+                            ${campoOValor(m.conteo_fisico, false)}
+                        </div>
+                        <div style="display:flex; justify-content:space-between; padding:3px 0;">
+                            <span>Diferencia</span>
+                            ${campoOValor(m.diferencia, true)}
+                        </div>
+                    </div>`;
+                }).join('') || `<p style="color:#94a3b8; text-align:center; padding:12px 0;">Esta tienda no tiene métodos de pago habilitados en Odoo.</p>`;
+
+                const ahora = new Date().toLocaleString('es');
+
+                // Lo que la persona escribió en "Observaciones del Cierre" (mismo
+                // formulario, arriba del botón de subir) — se toma tal cual está en
+                // pantalla en este momento, se haya enviado el cierre o no todavía.
+                const inputObs = document.getElementById("inputObservacionesCierre");
+                const observaciones = inputObs ? inputObs.value.trim() : "";
+                const observacionesEscapadas = observaciones.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                const seccionObservaciones = observaciones ? `
+                        <div style="margin-top:14px; padding:8px 10px; background:#fffbeb; border:1px solid #fde68a; border-radius:6px;">
+                            <div style="font-weight:bold; font-size:12px; margin-bottom:3px;">📝 Observaciones</div>
+                            <div style="font-size:12px; white-space:pre-line;">${observacionesEscapadas}</div>
+                        </div>` : '';
+
+                document.getElementById("areaImpresionCuadre").innerHTML = `
+                    <div style="font-family: Arial, sans-serif; color:#1e293b; max-width:520px; margin:0 auto; font-size:13px;">
+                        <h1 style="font-size:16px; margin-bottom:2px;">Cierre de Caja Registradora</h1>
+                        <p style="font-size:11px; color:#94a3b8; margin-top:0; margin-bottom:14px;">Generado el ${ahora}</p>
+
+                        <div style="display:flex; justify-content:space-between; align-items:baseline; border-bottom:2px solid #1e293b; padding-bottom:6px; margin-bottom:14px;">
+                            <span style="font-weight:bold; font-size:15px;">Caja ${datos.tienda}</span>
+                            <span>${datos.cantidad_ordenes} órdenes: <strong>$${datos.total_general.toFixed(2)}</strong></span>
+                        </div>
+                        <p style="font-size:11px; color:#64748b; margin-top:-8px; margin-bottom:14px;">Fecha: ${datos.fecha}</p>
+
+                        <div style="margin-bottom:14px;">
+                            <div style="font-weight:bold; font-size:14px; border-bottom:1px solid #cbd5e1; padding-bottom:3px; margin-bottom:4px;">Apertura (fondo inicial)</div>
+                            <div style="display:flex; justify-content:space-between; padding:3px 0;">
+                                <span>Base de apertura</span>
+                                ${(datos.base_apertura !== null && datos.base_apertura !== undefined)
+                                    ? `<span style="font-weight:bold;">${datos.base_apertura.toFixed(2)}</span>`
+                                    : `<span style="border-bottom:1px solid #94a3b8; width:110px; display:inline-block;">&nbsp;</span>`}
+                            </div>
+                        </div>
+
+                        ${seccionesMetodo}
+
+                        <div style="display:flex; justify-content:space-between; border-top:2px solid #1e293b; padding-top:8px; margin-top:6px; font-weight:bold; font-size:14px;">
+                            <span>TOTAL VENTAS DEL DÍA</span>
+                            <span>$${datos.total_general.toFixed(2)}</span>
+                        </div>
+
+                        ${seccionObservaciones}
+
+                        <div style="margin-top:50px; display:flex; justify-content:space-between; font-size:12px;">
+                            <div style="border-top:1px solid #1e293b; width:200px; padding-top:4px;">Firma Cajero/a</div>
+                            <div style="border-top:1px solid #1e293b; width:200px; padding-top:4px;">Firma Supervisor/a</div>
+                        </div>
+                    </div>
+                `;
+
+                window.print();
+            } catch (e) {
+                await mostrarAviso("Error: " + e.message);
+            }
+        }
+
+        function dibujarVendedoras(vendedoras) {
+            const contenedor = document.getElementById("kpiVendedoras");
+            if (!vendedoras || vendedoras.length === 0) {
+                contenedor.innerHTML = `<p class="text-sm text-slate-400">Sin ventas registradas este mes.</p>`;
+                return;
+            }
+            contenedor.innerHTML = vendedoras.map(v => {
+                const anchoBarra = v.pct === null ? 0 : Math.min(v.pct, 100);
+                const color = v.pct === null ? 'bg-slate-300' : v.pct >= 100 ? 'bg-emerald-500' : v.pct >= 50 ? 'bg-amber-500' : 'bg-rose-500';
+                // Solo %: cada vendedora es una porción del avance de la tienda
+                // (si la tienda va 70%, la suma de todas las vendedoras da ese 70%).
+                return `
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="font-semibold text-slate-700">${v.nombre}</span>
+                            <span class="text-slate-500 font-bold">${v.pct !== null ? `${v.pct}%` : 'Sin meta'}</span>
+                        </div>
+                        <div class="w-full bg-slate-200 rounded-full h-2">
+                            <div class="h-2 rounded-full ${color}" style="width:${anchoBarra}%"></div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function editarMetaMensual() {
+            if (!KPI_ACTUAL) return;
+            const nuevo = await mostrarPrompt(
+                `Meta mensual para ${KPI_ACTUAL.tienda} — ${String(KPI_ACTUAL.mes).padStart(2, '0')}/${KPI_ACTUAL.anio}:`,
+                String(KPI_ACTUAL.meta_mensual || 0)
+            );
+            if (nuevo === null) return;
+            const monto = parseFloat(nuevo);
+            if (isNaN(monto) || monto < 0) { await mostrarAviso("Ingresa un monto válido."); return; }
+
+            try {
+                const resp = await fetch("/api/metas", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ tienda: KPI_ACTUAL.tienda, anio: KPI_ACTUAL.anio, mes: KPI_ACTUAL.mes, monto_meta: monto })
+                });
+                const datos = await resp.json();
+                if (!resp.ok) throw new Error(datos.detail || "No se pudo guardar la meta.");
+                await mostrarAviso("Meta mensual actualizada.", 'bg-emerald-600');
+                cargarKPIs();
+            } catch (e) {
+                await mostrarAviso("Error: " + e.message);
+            }
+        }
+
+        // El candado "Registro Cerrado e Inmutable" es SOLO para la combinación
+        // fecha + tienda que ya fue cerrada. Se consulta al backend en vez de
+        // depender de HISTORIAL_CIERRES_MEMORIA (que ahora es exclusivo de
+        // admin) para que también funcione correctamente para un usuario normal.
+        async function sincronizarEstadoFormularioCierre() {
+            const fecha = document.getElementById("filtroFecha").value;
+            const tienda = document.getElementById("selectorTienda").value;
+            try {
+                const resp = await fetch(`/api/cierres/estado?fecha=${encodeURIComponent(fecha)}&tienda=${encodeURIComponent(tienda)}`);
+                const datos = resp.ok ? await resp.json() : { ya_registrado: false };
+                if (datos.ya_registrado) {
+                    bloquearFormularioCierre();
+                } else {
+                    desbloquearFormularioCierre();
+                }
+            } catch (e) { /* si falla la consulta no tocamos el estado actual */ }
+        }
+
+        // Refleja si esta tienda+fecha ya "envió" el reporte diario (botón de
+        // abajo), lo cual también oculta esas órdenes de Monitoreo para la tienda.
+        async function sincronizarEstadoReporteDiario() {
+            const fecha = document.getElementById("filtroFecha").value;
+            const tienda = document.getElementById("selectorTienda").value;
+            const btn = document.getElementById("btnGenerarReporte");
+            try {
+                const resp = await fetch(`/api/reporte-diario/estado?fecha=${encodeURIComponent(fecha)}&tienda=${encodeURIComponent(tienda)}`);
+                const datos = resp.ok ? await resp.json() : { enviado: false };
+                if (datos.enviado) {
+                    btn.disabled = true;
+                    btn.innerHTML = "<span>✅ Reporte ya enviado para este día</span>";
+                    btn.classList.add("opacity-60", "cursor-not-allowed");
+                } else {
+                    btn.disabled = false;
+                    btn.innerHTML = "<span>Generar e Iniciar Reporte Diario</span>";
+                    btn.classList.remove("opacity-60", "cursor-not-allowed");
+                }
+            } catch (e) { /* silencioso */ }
+        }
+
+        // Base de apertura (fondo inicial de caja): se escribe a mano, una por
+        // tienda+fecha, y se guarda en Postgres. Alimenta el Reporte de Cuadre.
+        async function sincronizarBaseApertura() {
+            const fecha = document.getElementById("filtroFecha").value;
+            const tienda = document.getElementById("selectorTienda").value;
+            const input = document.getElementById("inputBaseApertura");
+            const estado = document.getElementById("estadoBaseApertura");
+            if (!fecha || !tienda || !input) return;
+            try {
+                const resp = await fetch(`/api/apertura?fecha=${encodeURIComponent(fecha)}&tienda=${encodeURIComponent(tienda)}`);
+                const datos = resp.ok ? await resp.json() : { monto: null, solo_lectura: false };
+                input.value = (datos.monto !== null && datos.monto !== undefined) ? Number(datos.monto).toFixed(2) : "";
+                input.disabled = !!datos.solo_lectura;
+                input.classList.toggle("bg-slate-100", !!datos.solo_lectura);
+                input.classList.toggle("cursor-not-allowed", !!datos.solo_lectura);
+                estado.innerText = datos.solo_lectura ? "🔒 Congelada" : "";
+            } catch (e) { /* silencioso */ }
+        }
+
+        async function guardarBaseApertura() {
+            const fecha = document.getElementById("filtroFecha").value;
+            const tienda = document.getElementById("selectorTienda").value;
+            const input = document.getElementById("inputBaseApertura");
+            const estado = document.getElementById("estadoBaseApertura");
+            if (input.value.trim() === "") return;
+            const monto = parseFloat(input.value);
+            if (isNaN(monto) || monto < 0) {
+                await mostrarAviso("Ingresa un monto válido para la base de apertura.");
+                return;
+            }
+            try {
+                const resp = await fetch("/api/apertura", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ fecha, tienda, monto })
+                });
+                if (resp.status === 401) { mostrarLogin(); return; }
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    throw new Error(err.detail || "No se pudo guardar la base de apertura.");
+                }
+                estado.innerText = "✅ Guardada";
+                setTimeout(() => { if (estado.innerText === "✅ Guardada") estado.innerText = ""; }, 2000);
+            } catch (e) {
+                await mostrarAviso("Error: " + e.message);
+                sincronizarBaseApertura();
+            }
+        }
+
+        // Reversa exacta de bloquearFormularioCierre(): la restaura a como está
+        // definida en el HTML original (mismas clases y texto del botón).
+        function desbloquearFormularioCierre() {
+            const form = document.getElementById("formSesionCierre");
+            if (!form) return;
+            form.querySelectorAll("input, select, textarea").forEach(el => {
+                el.disabled = false;
+                el.classList.remove("bg-slate-50", "text-slate-400", "border-slate-200", "cursor-not-allowed", "shadow-none");
+            });
+            const btn = document.getElementById("btnSubirCierre");
+            if (btn) {
+                btn.disabled = false;
+                btn.className = "w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 rounded-lg text-sm transition-colors";
+                btn.innerHTML = "Subir Documentos y Cerrar Caja";
+            }
+        }
+
+        function renderizarTabla(datos) {
+            const cuerpo = document.getElementById("tablaVentasCuerpo");
+            cuerpo.innerHTML = "";
+
+            const soloLectura = !!(datos && datos.length > 0 && datos[0].solo_lectura);
+            document.getElementById("bannerSoloLectura").classList.toggle("hidden", !soloLectura);
+
+            if(!datos || datos.length === 0){
+                cuerpo.innerHTML = `<tr><td colspan="4" class="text-center p-6 text-slate-400 italic">No se encontraron órdenes para este local.</td></tr>`;
+                document.getElementById("totalTransacciones").innerText = "0";
+                document.getElementById("totalMontoDinero").innerText = "$0.00";
+                return;
+            }
+            let acum = 0;
+            datos.forEach((item) => {
+                acum += item.total_venta;
+                cuerpo.innerHTML += `
+                    <tr class="border-b border-slate-100 hover:bg-slate-50/80 transition-colors">
+                        <td class="px-4 py-3 font-semibold text-slate-900">${item.orden_id}</td>
+                        <td class="px-4 py-3 text-xs font-medium text-slate-500">${item.tienda}</td>
+                        <td class="px-4 py-3 text-right font-bold text-slate-800">$${item.total_venta.toFixed(2)}</td>
+                        <td class="px-4 py-3 text-center">
+                            <button onclick="verDetalleVenta('${item.orden_id}')" class="bg-slate-800 hover:bg-slate-950 text-white text-[11px] font-medium px-3 py-1.5 rounded-lg shadow-sm hover:shadow transition-all duration-150">🔍 Ver detalles</button>
+                        </td>
+                    </tr>
+                `;
+            });
+            document.getElementById("totalTransacciones").innerText = datos.length;
+            document.getElementById("totalMontoDinero").innerText = `$${acum.toFixed(2)}`;
+        }
+
+        function verDetalleVenta(ordenId) {
+            const venta = BASE_DATOS_VENTAS.find(v => v.orden_id === ordenId);
+            if(!venta) return;
+
+            ID_VENTA_ACTUAL_MODAL = venta.orden_id;
+            TIENDA_VENTA_ACTUAL_MODAL = venta.tienda || null;
+            document.getElementById("modalTitulo").innerText = `Orden: ${venta.orden_id}`;
+            document.getElementById("modalTipoPago").innerText = venta.tipo_pago || venta.metodo_pago || 'No especificado';
+            document.getElementById("modalTotal").innerText = `$${venta.total_venta.toFixed(2)}`;
+
+            const listaProd = document.getElementById("modalProductosLista");
+            listaProd.innerHTML = "";
+
+            const productosReales = venta.productos || venta.lineas || venta.lines || venta.items || venta.detalle;
+
+            if (productosReales && Array.isArray(productosReales) && productosReales.length > 0) {
+                productosReales.forEach(p => {
+                    const nombre = p.nombre || p.product_id || p.producto || p.articulo || "Producto";
+                    const cantidad = p.cantidad || p.qty || p.cant || 1;
+                    const subtotal = p.subtotal || p.price_subtotal || p.monto || (p.price_unit * cantidad) || 0;
+
+                    listaProd.innerHTML += `
+                        <div class="flex justify-between py-2 border-b border-slate-100 last:border-none text-sm text-slate-700">
+                            <span>${nombre} <span class="text-xs text-slate-400 font-medium">x${cantidad}</span></span>
+                            <span class="font-semibold text-slate-900">$${subtotal.toFixed(2)}</span>
+                        </div>`;
+                });
+            } else {
+                listaProd.innerHTML = `
+                    <div class="flex justify-between py-2 text-slate-400 italic text-sm">
+                        <span>Consumo General Odoo POS</span>
+                        <span class="font-semibold text-slate-600">$${venta.total_venta.toFixed(2)}</span>
+                    </div>`;
+            }
+
+            // Inyección Pro de Imagen en Vista General
+            const contenedorImg = document.getElementById("modalContenedorImagen");
+            if(contenedorImg) {
+                const urlImg = venta.comprobante_url || venta.imagen;
+                if(urlImg) {
+                    contenedorImg.innerHTML = `
+                        <div class="mt-5 pt-4 border-t border-slate-100 bg-slate-50/50 rounded-xl p-3">
+                            <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">📸 Comprobante Digital adjunto</span>
+                            <a href="${urlImg}" target="_blank" class="block border border-slate-200 rounded-lg overflow-hidden bg-white hover:border-slate-300 transition-all shadow-sm group">
+                                <img src="${urlMiniaturaDrive(urlImg)}" alt="Comprobante" class="max-h-44 mx-auto object-contain p-1 group-hover:scale-[1.02] transition-transform duration-200"/>
+                            </a>
+                        </div>
+                    `;
+                } else {
+                    contenedorImg.innerHTML = "";
+                }
+            }
+
+            // Orden congelada (ya se envió el reporte diario): ya no se puede
+            // subir/reemplazar comprobante — el backend también lo rechaza,
+            // esto es solo para no mostrar un formulario que va a fallar.
+            const formComp = document.getElementById("formComprobanteVenta");
+            formComp.classList.toggle("hidden", !!venta.solo_lectura);
+
+            const modalVentaElement = document.getElementById("modalVenta");
+            modalVentaElement.style.zIndex = "100";
+            modalVentaElement.classList.remove("hidden");
+        }
+
+        function cerrarModalVenta() {
+            document.getElementById("modalVenta").classList.add("hidden");
+            document.getElementById("formComprobanteVenta").reset();
+            const contenedorImg = document.getElementById("modalContenedorImagen");
+            if(contenedorImg) contenedorImg.innerHTML = "";
+            ID_VENTA_ACTUAL_MODAL = null;
+            TIENDA_VENTA_ACTUAL_MODAL = null;
+        }
+
+        // Paso de confirmación antes de "Generar e Iniciar Reporte Diario": "Pagos"
+        // viene de Odoo en vivo (de solo lectura, no se toca) y "Conteo Físico" es
+        // lo único editable — ahí se ingresa lo contado a mano. La "Diferencia" se
+        // calcula sola comparando ambos, antes de congelar el día.
+        async function abrirConfirmacionReporteDiario() {
+            const fecha = document.getElementById("filtroFecha").value;
+            const tienda = document.getElementById("selectorTienda").value;
+
+            document.getElementById("confirmacionReporteLocal").innerText = tienda;
+            document.getElementById("confirmacionReporteFecha").innerText = fecha;
+            document.getElementById("confirmacionReporteCuerpo").innerHTML = `<tr><td colspan="4" class="text-center p-4 text-slate-400">Consultando Odoo...</td></tr>`;
+            document.getElementById("btnConfirmarYGenerarReporte").disabled = true;
+            document.getElementById("modalConfirmarReporteDiario").classList.remove("hidden");
+
+            let porMetodo = [];
+            try {
+                const resp = await fetch(`/api/ventas/resumen-cuadre?fecha=${encodeURIComponent(fecha)}&tienda=${encodeURIComponent(tienda)}`);
+                if (resp.status === 401) { mostrarLogin(); return; }
+                if (resp.ok) {
+                    const odoo = await resp.json();
+                    porMetodo = odoo.por_metodo || [];
+                }
+            } catch (e) { /* seguimos con la lista vacía si Odoo no responde */ }
+
+            const cuerpo = document.getElementById("confirmacionReporteCuerpo");
+            cuerpo.innerHTML = "";
+            if (porMetodo.length === 0) {
+                cuerpo.innerHTML = `<tr><td colspan="4" class="text-center p-4 text-slate-400 italic">Sin métodos de pago para esta tienda y fecha.</td></tr>`;
+            }
+            porMetodo.forEach(m => {
+                cuerpo.innerHTML += `
+                    <tr>
+                        <td class="px-3 py-2 font-semibold text-slate-800">Total ${m.metodo}</td>
+                        <td class="px-3 py-2 text-right">$${m.monto.toFixed(2)}</td>
+                        <td class="px-3 py-2 text-right">
+                            <input type="number" step="0.01" class="input-conteo-fisico-modal w-24 border border-slate-300 rounded px-2 py-1 text-sm text-right" data-metodo="${m.metodo}" data-pagos="${m.monto}" oninput="_recalcularDiferenciaModal(this)">
+                        </td>
+                        <td class="px-3 py-2 text-right font-bold diferencia-celda-modal text-slate-400">—</td>
+                    </tr>`;
+            });
+
+            document.getElementById("btnConfirmarYGenerarReporte").disabled = false;
+        }
+
+        function _recalcularDiferenciaModal(input) {
+            const fila = input.closest('tr');
+            const celda = fila.querySelector('.diferencia-celda-modal');
+            const pagos = parseFloat(input.dataset.pagos) || 0;
+            const valor = parseFloat(input.value);
+            if (isNaN(valor)) {
+                celda.innerText = '—';
+                celda.className = 'px-3 py-2 text-right font-bold diferencia-celda-modal text-slate-400';
+                return;
+            }
+            const dif = valor - pagos;
+            celda.innerText = `${dif >= 0 ? '' : '-'}$${Math.abs(dif).toFixed(2)}`;
+            celda.className = 'px-3 py-2 text-right font-bold diferencia-celda-modal ' + (Math.abs(dif) > 0.01 ? 'text-rose-600' : 'text-emerald-600');
+        }
+
+        function cerrarConfirmacionReporteDiario() {
+            document.getElementById("modalConfirmarReporteDiario").classList.add("hidden");
+        }
+
+        // "Pagos" tal cual llegó de Odoo (no se edita) — se congela como snapshot
+        // del momento exacto en que se generó el reporte.
+        function _leerPagosCuadre() {
+            return Array.from(document.querySelectorAll('.input-conteo-fisico-modal')).map(inp => ({
+                metodo: inp.dataset.metodo,
+                monto: parseFloat(inp.dataset.pagos) || 0
+            }));
+        }
+
+        // Conteo Físico ingresado a mano — solo los métodos que se llegaron a contar.
+        function _leerConteoFisicoCuadre() {
+            return Array.from(document.querySelectorAll('.input-conteo-fisico-modal'))
+                .filter(inp => inp.value.trim() !== '')
+                .map(inp => ({ metodo: inp.dataset.metodo, monto: parseFloat(inp.value) || 0 }));
+        }
+
+        async function confirmarYGenerarReporteDiario() {
+            const pagos = _leerPagosCuadre();
+            const conteo = _leerConteoFisicoCuadre();
+            cerrarConfirmacionReporteDiario();
+            await activarCierreDeCaja(pagos, conteo);
+        }
+
+        // Imprime la tabla del modal de confirmación tal cual quedó (Pagos de Odoo
+        // + lo contado físicamente + la diferencia).
+        function imprimirComparacionCuadre() {
+            const fecha = document.getElementById("confirmacionReporteFecha").innerText;
+            const tienda = document.getElementById("confirmacionReporteLocal").innerText;
+            const inputs = document.querySelectorAll('.input-conteo-fisico-modal');
+            let totalPagos = 0;
+            const filasHtml = Array.from(inputs).map(inp => {
+                const pagos = parseFloat(inp.dataset.pagos) || 0;
+                totalPagos += pagos;
+                const conteoVal = inp.value.trim() !== '' ? parseFloat(inp.value) : null;
+                const dif = conteoVal !== null ? conteoVal - pagos : null;
+                return `
+                    <tr>
+                        <td style="padding:4px 6px; border-bottom:1px solid #e2e8f0;">Total ${inp.dataset.metodo}</td>
+                        <td style="padding:4px 6px; border-bottom:1px solid #e2e8f0; text-align:right;">$${pagos.toFixed(2)}</td>
+                        <td style="padding:4px 6px; border-bottom:1px solid #e2e8f0; text-align:right;">${conteoVal !== null ? '$' + conteoVal.toFixed(2) : '—'}</td>
+                        <td style="padding:4px 6px; border-bottom:1px solid #e2e8f0; text-align:right; font-weight:bold;">${dif !== null ? (dif >= 0 ? '' : '-') + '$' + Math.abs(dif).toFixed(2) : '—'}</td>
+                    </tr>`;
+            }).join('');
+            const ahora = new Date().toLocaleString('es');
+            document.getElementById("areaImpresionCuadre").innerHTML = `
+                <div style="font-family: Arial, sans-serif; color:#1e293b; max-width:560px; margin:0 auto; font-size:13px;">
+                    <h1 style="font-size:16px; margin-bottom:2px;">Cuadre por Método de Pago — Pre-Cierre</h1>
+                    <p style="font-size:11px; color:#94a3b8; margin-top:0; margin-bottom:14px;">Generado el ${ahora}</p>
+                    <div style="display:flex; justify-content:space-between; align-items:baseline; border-bottom:2px solid #1e293b; padding-bottom:6px; margin-bottom:14px;">
+                        <span style="font-weight:bold; font-size:15px;">${tienda}</span>
+                        <span style="font-size:11px; color:#64748b;">Fecha: ${fecha}</span>
+                    </div>
+                    <table style="width:100%; border-collapse:collapse; font-size:12px;">
+                        <thead>
+                            <tr>
+                                <th style="text-align:left; padding:4px 6px; border-bottom:2px solid #1e293b;">Método</th>
+                                <th style="text-align:right; padding:4px 6px; border-bottom:2px solid #1e293b;">Pagos</th>
+                                <th style="text-align:right; padding:4px 6px; border-bottom:2px solid #1e293b;">Conteo Físico</th>
+                                <th style="text-align:right; padding:4px 6px; border-bottom:2px solid #1e293b;">Diferencia</th>
+                            </tr>
+                        </thead>
+                        <tbody>${filasHtml}</tbody>
+                    </table>
+                    <div style="display:flex; justify-content:space-between; border-top:2px solid #1e293b; padding-top:8px; margin-top:6px; font-weight:bold; font-size:14px;">
+                        <span>TOTAL PAGOS</span>
+                        <span>$${totalPagos.toFixed(2)}</span>
+                    </div>
+                </div>`;
+            window.print();
+        }
+
+        // "Generar e Iniciar Reporte Diario": envía fecha+tienda+totales al backend
+        // (antes esto era solo un botón decorativo que no guardaba nada). A partir
+        // de ese envío, esa tienda+fecha deja de aparecer y de poder editarse en
+        // Monitoreo de Órdenes, y se habilita continuar en Cierre de Caja.
+        // `pagosMetodo` es el snapshot de Odoo (sin editar) y `conteoFisico` lo
+        // contado a mano, ambos de la pantalla previa de confirmación.
+        async function activarCierreDeCaja(pagosMetodo, conteoFisico) {
+            const fecha = document.getElementById("filtroFecha").value;
+            const tienda = document.getElementById("selectorTienda").value;
+
+            if (VENTAS_FILTRADAS_LOCAL_ACTUAL.length === 0) {
+                const seguir = await mostrarConfirmacion("No hay órdenes cargadas para esta tienda en esta fecha. ¿Enviar el reporte diario de todas formas?");
+                if (!seguir) return;
+            }
+
+            const total = VENTAS_FILTRADAS_LOCAL_ACTUAL.reduce((acc, v) => acc + v.total_venta, 0);
+            const cantidad = VENTAS_FILTRADAS_LOCAL_ACTUAL.length;
+
+            const btn = document.getElementById("btnGenerarReporte");
+            btn.disabled = true;
+
+            const formData = new FormData();
+            formData.append("fecha", fecha);
+            formData.append("tienda_nombre", tienda);
+            formData.append("total_odoo", total);
+            formData.append("cantidad_ordenes", cantidad);
+            // Snapshot interno (productos + quién facturó) para que Cierre de Caja
+            // no dependa de la caché del navegador, que queda vacía apenas se envía.
+            formData.append("ordenes_detalle", JSON.stringify(VENTAS_FILTRADAS_LOCAL_ACTUAL));
+            formData.append("ajuste_metodos_pago", JSON.stringify(pagosMetodo || []));
+            formData.append("conteo_fisico", JSON.stringify(conteoFisico || []));
+
+            try {
+                const response = await fetch("/api/ventas/consolidar", { method: "POST", body: formData });
+                if (!response.ok) {
+                    const err = await response.json().catch(() => ({}));
+                    await mostrarAviso("No se pudo enviar el reporte diario: " + (err.detail || "Error interno."));
+                    btn.disabled = false;
+                    return;
+                }
+
+                await mostrarAviso("Reporte Diario enviado. Esta fecha ya no aparecerá ni se podrá editar en Monitoreo de Órdenes para esta tienda. Continúa en 'Cierre de Caja'.", 'bg-emerald-600');
+
+                const btnNav = document.getElementById("btnNavCierre");
+                btnNav.disabled = false;
+                btnNav.classList.remove("text-slate-400", "cursor-not-allowed");
+                btnNav.classList.add("text-slate-700", "hover:bg-slate-50");
+
+                await ejecutarConsultaOdoo(); // ahora debe salir vacío para esta tienda+fecha
+                cambiarPantalla('cierre');
+            } catch (e) {
+                await mostrarAviso("Error de red al enviar el reporte diario.");
+                btn.disabled = false;
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // NAVEGACIÓN
+        // ══════════════════════════════════════════════════════════════
+        // El menú es un panel lateral (drawer) que se desliza desde la
+        // izquierda con fondo oscuro detrás — no un dropdown chico flotando
+        // debajo del botón, que se sentía desconectado del resto.
+        function alternarMenuPrincipal() {
+            const nav = document.getElementById("navPrincipal");
+            if (nav.classList.contains("-translate-x-full")) {
+                abrirMenuPrincipal();
+            } else {
+                cerrarMenuPrincipal();
+            }
+        }
+
+        function abrirMenuPrincipal() {
+            document.getElementById("navPrincipal").classList.remove("-translate-x-full");
+            // "Empuja" el contenido SOLO desde tablet (sm+) para arriba, donde
+            // sí sobra ancho — en celular empujar dejaría una tira de
+            // contenido cortado, así que ahí el menú se superpone no más.
+            document.getElementById("appContenido").classList.add("sm:translate-x-72");
+            document.getElementById("fondoMenuPrincipal").classList.remove("hidden");
+            document.getElementById("btnMenuHamburguesa").setAttribute("aria-expanded", "true");
+        }
+
+        function cerrarMenuPrincipal() {
+            document.getElementById("navPrincipal").classList.add("-translate-x-full");
+            document.getElementById("appContenido").classList.remove("sm:translate-x-72");
+            document.getElementById("fondoMenuPrincipal").classList.add("hidden");
+            document.getElementById("btnMenuHamburguesa").setAttribute("aria-expanded", "false");
+        }
+
+        // Atajo para las opciones del menú: navega y lo cierra.
+        function irA(pantalla) {
+            cambiarPantalla(pantalla);
+            cerrarMenuPrincipal();
+        }
+
+        function cambiarPantalla(pantalla) {
+            if ((pantalla === 'historial' || pantalla === 'usuarios' || pantalla === 'metas' || pantalla === 'comisiones') && SESION_USUARIO?.rol !== 'admin') return;
+
+            const pantallas = { ventas: 'pantallaVentas', kpis: 'pantallaKPIs', cierre: 'pantallaCierre', historial: 'pantallaHistorial', metas: 'pantallaMetas', comisiones: 'pantallaComisiones', usuarios: 'pantallaUsuarios' };
+            Object.entries(pantallas).forEach(([key, id]) => {
+                document.getElementById(id).classList.toggle("hidden", key !== pantalla);
+            });
+
+            // Recordamos en qué pantalla estaba para que un refresh (F5) la
+            // mantenga en vez de siempre volver a Órdenes del Día.
+            try { sessionStorage.setItem("socia_pantalla_actual", pantalla); } catch (e) { /* modo privado, etc. */ }
+
+            if (pantalla === 'kpis') cargarKPIs();
+            if (pantalla === 'historial') cargarHistorialCierres();
+            if (pantalla === 'metas') cargarMetasMensuales();
+            if (pantalla === 'comisiones') inicializarPantallaComisiones();
+            if (pantalla === 'usuarios') cargarUsuarios();
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // HISTORIAL DE CIERRES (solo admin)
+        // ══════════════════════════════════════════════════════════════
+        async function cargarHistorialCierres() {
+            const cuerpo = document.getElementById("tablaHistorialCuerpo");
+            try {
+                const respuesta = await fetch("/api/cierres/historial");
+                if (respuesta.status === 401) { mostrarLogin(); return; }
+                if (respuesta.status === 403) {
+                    cuerpo.innerHTML = `<tr><td colspan="5" class="text-center py-6 text-slate-400">Este módulo es exclusivo del administrador.</td></tr>`;
+                    return;
+                }
+                if (!respuesta.ok) throw new Error("Error al obtener el historial");
+
+                HISTORIAL_CIERRES_MEMORIA = await respuesta.json();
+                aplicarFiltrosHistorial();
+            } catch (error) {
+                console.error(error);
+                cuerpo.innerHTML = `<tr><td colspan="5" class="text-center py-6 text-rose-600 font-medium">⚠️ Falló la carga del módulo histórico.</td></tr>`;
+            }
+        }
+
+        // Filtra sobre lo ya cargado en memoria — no vuelve a pedirle nada al
+        // servidor, así que responde al instante al cambiar cualquier filtro.
+        function aplicarFiltrosHistorial() {
+            const tienda = document.getElementById("filtroHistorialTienda").value;
+            const estado = document.getElementById("filtroHistorialEstado").value;
+            const desde = document.getElementById("filtroHistorialDesde").value;
+            const hasta = document.getElementById("filtroHistorialHasta").value;
+
+            const filtrado = HISTORIAL_CIERRES_MEMORIA.filter(c => {
+                if (tienda && (c.tienda || c.tienda_nombre) !== tienda) return false;
+                if (estado !== "" && String(c.completado) !== estado) return false;
+                if (desde && c.fecha < desde) return false;
+                if (hasta && c.fecha > hasta) return false;
+                return true;
+            });
+
+            renderizarTablaHistorial(filtrado);
+        }
+
+        function limpiarFiltrosHistorial() {
+            document.getElementById("filtroHistorialTienda").value = "";
+            document.getElementById("filtroHistorialEstado").value = "";
+            document.getElementById("filtroHistorialDesde").value = "";
+            document.getElementById("filtroHistorialHasta").value = "";
+            aplicarFiltrosHistorial();
+        }
+
+        function renderizarTablaHistorial(datos) {
+            const cuerpo = document.getElementById("tablaHistorialCuerpo");
+            cuerpo.innerHTML = "";
+
+            if (HISTORIAL_CIERRES_MEMORIA.length === 0) {
+                cuerpo.innerHTML = `<tr><td colspan="5" class="text-center py-6 text-slate-400">No hay cierres históricos en la base de datos.</td></tr>`;
+                return;
+            }
+            if (datos.length === 0) {
+                cuerpo.innerHTML = `<tr><td colspan="5" class="text-center py-6 text-slate-400">Ningún cierre coincide con los filtros aplicados.</td></tr>`;
+                return;
+            }
+
+            datos.forEach((cierre) => {
+                // El backend manda "completado": 1 = Aprobado, 2 = Rechazado, 0 = Pendiente.
+                let estadoBadge = `<span class="bg-amber-50 text-amber-700 ring-1 ring-amber-600/10 text-xs px-2.5 py-1 rounded-md font-semibold">⏳ Pendiente</span>`;
+                if (cierre.completado === 1) {
+                    estadoBadge = `<span class="bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/10 text-xs px-2.5 py-1 rounded-md font-semibold">✅ Aprobado</span>`;
+                } else if (cierre.completado === 2) {
+                    estadoBadge = `<span class="bg-rose-50 text-rose-700 ring-1 ring-rose-600/10 text-xs px-2.5 py-1 rounded-md font-semibold">❌ Rechazado</span>`;
+                }
+
+                const tieneObs = !!(cierre.observaciones_cajero && cierre.observaciones_cajero.trim());
+                cuerpo.innerHTML += `
+                    <tr class="border-b border-slate-100 hover:bg-slate-50 transition text-xs">
+                        <td class="px-4 py-3.5 font-semibold text-slate-900">${cierre.fecha}</td>
+                        <td class="px-4 py-3.5 font-medium text-slate-700">${cierre.tienda || cierre.tienda_nombre}</td>
+                        <td class="px-4 py-3.5 text-slate-500">${cierre.usuario}</td>
+                        <td class="px-4 py-3.5 text-center">${estadoBadge}${tieneObs ? ' <span title="Tiene observaciones del cajero" class="ml-1">📝</span>' : ''}</td>
+                        <td class="px-4 py-3.5 text-center">
+                            <button onclick="abrirAuditoriaCierre(${cierre.id})" class="bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold px-3 py-1.5 rounded-lg shadow-sm transition-all duration-150">
+                                🕵️ Auditar
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        function abrirAuditoriaCierre(cierreId) {
+            // Por ID, no por índice: con los filtros activos, la fila visible
+            // ya no corresponde 1 a 1 con la posición dentro de la memoria completa.
+            const cierre = HISTORIAL_CIERRES_MEMORIA.find(c => c.id === cierreId);
+            if(!cierre) return;
+
+            ID_CIERRE_ACTUAL_AUDITORIA = cierre.id;
+
+            document.getElementById("auditoriaLocal").innerText = cierre.tienda || cierre.tienda_nombre;
+            document.getElementById("auditoriaFecha").innerText = cierre.fecha;
+            document.getElementById("auditoriaUsuario").innerText = cierre.usuario;
+
+            const tieneObs = !!(cierre.observaciones_cajero && cierre.observaciones_cajero.trim());
+            document.getElementById("auditoriaObservacionesWrap").classList.toggle("hidden", !tieneObs);
+            document.getElementById("auditoriaObservaciones").innerText = cierre.observaciones_cajero || "";
+
+            configurarLinkAuditoria("auditoriaLinkResumen", cierre.resumen_drive);
+            configurarLinkAuditoria("auditoriaLinkLote", cierre.lote_drive);
+            configurarLinkAuditoria("auditoriaLinkDeposito", cierre.deposito_drive);
+
+            const contenedorPedidos = document.getElementById("auditoriaListaPedidosOdoo");
+            contenedorPedidos.innerHTML = "";
+
+            // Una vez que este cierre ya fue Aprobado (1) o Rechazado (2), la
+            // decisión es inmutable: se bloquean los checks "OK" y los botones
+            // de Aprobar/Rechazar, para que no se pueda cambiar nada después.
+            const yaDecidido = cierre.completado === 1 || cierre.completado === 2;
+            document.getElementById("auditoriaAccionesDecision").classList.toggle("hidden", yaDecidido);
+            document.getElementById("auditoriaBannerDecidido").classList.toggle("hidden", !yaDecidido);
+
+            const pedidosAlmacenados = cierre.pedidos || cierre.ordenes || cierre.ventas_guardadas || [];
+            let sumaAuditoria = 0;
+
+            if(!pedidosAlmacenados || pedidosAlmacenados.length === 0) {
+                contenedorPedidos.innerHTML = `<div class="p-4 text-center text-slate-400 italic text-sm">No existen registros individuales vinculados a esta auditoría.</div>`;
+            } else {
+                pedidosAlmacenados.forEach(p => {
+                    const id = p.orden_id || p.id || "Orden";
+                    const total = parseFloat(p.total_venta || p.total || 0);
+                    const pago = p.tipo_pago || p.metodo_pago || 'Registrado';
+                    const revisado = p.revisado === true;
+
+                    sumaAuditoria += total;
+
+                    // Lista estilizada a nivel Profesional
+                    contenedorPedidos.innerHTML += `
+                        <div class="flex justify-between items-center px-4 py-2.5 hover:bg-slate-50/80 border-b border-slate-100 last:border-none transition-colors">
+                            <div>
+                                <span class="font-semibold text-slate-900 text-sm">${id}</span>
+                                <span class="text-[10px] font-medium text-slate-400 block tracking-wide uppercase">${pago}</span>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <span class="font-bold text-slate-800 text-sm">$${total.toFixed(2)}</span>
+                                <button onclick="verDetalleVentaDesdeAuditoria('${id}')" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-2.5 py-1 rounded-md transition-all duration-150">
+                                    🔍 Ver
+                                </button>
+                                <label class="flex items-center gap-1 text-[11px] font-bold text-emerald-700 ${yaDecidido ? 'opacity-60' : 'cursor-pointer'} select-none" title="Marcar esta venta como revisada (comprobante vs. dato)">
+                                    <input type="checkbox" data-orden-id="${id}" ${revisado ? 'checked' : ''} ${yaDecidido ? 'disabled' : ''} onchange="marcarPedidoRevisado('${id}', this.checked, this)" class="w-3.5 h-3.5 accent-emerald-600">
+                                    OK
+                                </label>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+            document.getElementById("auditoriaTotalPedidosMonto").innerText = `Total: $${sumaAuditoria.toFixed(2)}`;
+            actualizarContadorRevisadosAuditoria();
+            document.getElementById("modalAuditoriaCierre").classList.remove("hidden");
+        }
+
+        function actualizarContadorRevisadosAuditoria() {
+            const checks = document.querySelectorAll('#auditoriaListaPedidosOdoo input[type="checkbox"]');
+            const total = checks.length;
+            const marcados = Array.from(checks).filter(c => c.checked).length;
+            const el = document.getElementById("auditoriaContadorRevisados");
+            if (el) el.innerText = `${marcados}/${total} revisadas`;
+        }
+
+        // Check manual por venta: el auditor lo marca tras comparar el comprobante
+        // contra el dato de la venta. Se guarda en el propio registro del cierre;
+        // NO aprueba nada por sí solo (eso lo hace "Dar Visto Bueno" para el día completo).
+        async function marcarPedidoRevisado(ordenId, revisado, checkboxEl) {
+            if (ID_CIERRE_ACTUAL_AUDITORIA === null) return;
+            checkboxEl.disabled = true;
+            try {
+                const response = await fetch("/api/cierres/revisar-pedido", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ cierre_id: ID_CIERRE_ACTUAL_AUDITORIA, orden_id: ordenId, revisado })
+                });
+                if (!response.ok) throw new Error("El servidor rechazó el cambio.");
+                const resultado = await response.json();
+
+                // Reflejamos el nuevo estado en memoria para no perderlo antes del próximo refresh
+                const cierreAct = HISTORIAL_CIERRES_MEMORIA.find((c, i) => (c.id === ID_CIERRE_ACTUAL_AUDITORIA || i === ID_CIERRE_ACTUAL_AUDITORIA));
+                if (cierreAct) cierreAct.pedidos = resultado.pedidos;
+
+                actualizarContadorRevisadosAuditoria();
+            } catch (e) {
+                await mostrarAviso("No se pudo guardar la revisión de esta venta. Intenta de nuevo.");
+                checkboxEl.checked = !revisado;
+            } finally {
+                checkboxEl.disabled = false;
+            }
+        }
+
+        function verDetalleVentaDesdeAuditoria(ordenId) {
+            let venta = BASE_DATOS_VENTAS.find(v => v.orden_id === ordenId);
+
+            const cierreActual = ID_CIERRE_ACTUAL_AUDITORIA !== null
+                ? HISTORIAL_CIERRES_MEMORIA.find((c, i) => (c.id === ID_CIERRE_ACTUAL_AUDITORIA || i === ID_CIERRE_ACTUAL_AUDITORIA))
+                : null;
+
+            if(!venta && cierreActual) {
+                const pGuardado = cierreActual?.pedidos?.find(p => p.orden_id === ordenId || p.id === ordenId);
+                if(pGuardado) {
+                    venta = {
+                        orden_id: ordenId,
+                        total_venta: parseFloat(pGuardado.total_venta || pGuardado.total || 0),
+                        tipo_pago: pGuardado.tipo_pago || pGuardado.metodo_pago || 'Registrado',
+                        comprobante_url: pGuardado.comprobante_url || pGuardado.imagen || null,
+                        productos: pGuardado.productos || []
+                    };
+                }
+            }
+
+            if(!venta) {
+                venta = { orden_id: ordenId, total_venta: 0, tipo_pago: 'Histórico (Cierre Guardado)', comprobante_url: null, productos: [] };
+            }
+
+            ID_VENTA_ACTUAL_MODAL = venta.orden_id;
+            TIENDA_VENTA_ACTUAL_MODAL = venta.tienda || cierreActual?.tienda || cierreActual?.tienda_nombre || null;
+            document.getElementById("modalTitulo").innerText = `Orden: ${venta.orden_id}`;
+            document.getElementById("modalTipoPago").innerText = venta.tipo_pago;
+            document.getElementById("modalTotal").innerText = `$${venta.total_venta.toFixed(2)}`;
+
+            const listaProd = document.getElementById("modalProductosLista");
+            listaProd.innerHTML = "";
+
+            const productosReales = venta.productos || venta.lineas || [];
+            if (productosReales.length > 0) {
+                productosReales.forEach(p => {
+                    const nombre = p.nombre || "Producto";
+                    const cantidad = p.cantidad || 1;
+                    const subtotal = p.subtotal || (p.price_unit * cantidad) || 0;
+                    listaProd.innerHTML += `
+                        <div class="flex justify-between py-2 border-b border-slate-100 last:border-none text-sm text-slate-700">
+                            <span>${nombre} <span class="text-xs text-slate-400 font-medium">x${cantidad}</span></span>
+                            <span class="font-semibold text-slate-900">$${subtotal.toFixed(2)}</span>
+                        </div>`;
+                });
+            } else {
+                listaProd.innerHTML = `
+                    <div class="flex justify-between py-2 text-slate-400 italic text-sm">
+                        <span>Consumo General Registrado</span>
+                        <span class="font-semibold text-slate-600">$${venta.total_venta.toFixed(2)}</span>
+                    </div>`;
+            }
+
+            // Inyección Inteligente con Diseño de Alta Fidelidad para Auditoría
+            const contenedorImg = document.getElementById("modalContenedorImagen");
+            if(contenedorImg) {
+                if(venta.comprobante_url) {
+                    contenedorImg.innerHTML = `
+                        <div class="mt-5 pt-4 border-t border-slate-100 bg-slate-50 rounded-xl p-3">
+                            <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">📸 Comprobante Digital adjunto</span>
+                            <a href="${venta.comprobante_url}" target="_blank" class="block border border-slate-200 rounded-lg overflow-hidden bg-white hover:border-slate-300 transition-all shadow-sm group">
+                                <img src="${urlMiniaturaDrive(venta.comprobante_url)}" alt="Comprobante" class="max-h-44 mx-auto object-contain p-1 group-hover:scale-[1.02] transition-transform duration-200"/>
+                            </a>
+                        </div>
+                    `;
+                } else {
+                    contenedorImg.innerHTML = "";
+                }
+            }
+
+            // Garantizar la capa visual por encima del fondo de auditoría
+            const modalVentaElement = document.getElementById("modalVenta");
+            modalVentaElement.style.zIndex = "9999";
+            modalVentaElement.classList.remove("hidden");
+        }
+
+        function configurarLinkAuditoria(elemId, driveId) {
+            const elem = document.getElementById(elemId);
+            if(driveId) {
+                elem.href = `https://drive.google.com/file/d/${driveId}/view`;
+                elem.classList.remove("opacity-30", "pointer-events-none");
+            } else {
+                elem.href = "#";
+                elem.classList.add("opacity-30", "pointer-events-none");
+            }
+        }
+
+        function cerrarModalAuditoria() {
+            document.getElementById("modalAuditoriaCierre").classList.add("hidden");
+            ID_CIERRE_ACTUAL_AUDITORIA = null;
+        }
+
+        async function procesarVistoBueno(esAprobado) {
+            const accionStr = esAprobado ? "APROBAR" : "RECHAZAR";
+
+            if (esAprobado) {
+                // Bloqueo real: no se puede aprobar si falta marcar OK algún pedido.
+                const checks = document.querySelectorAll('#auditoriaListaPedidosOdoo input[type="checkbox"]');
+                const sinRevisar = Array.from(checks).filter(c => !c.checked);
+                if (sinRevisar.length > 0) {
+                    const listaIds = sinRevisar.map(c => c.dataset.ordenId || '(orden sin id)').join('\n• ');
+                    await mostrarAviso(
+                        `No puedes aprobar este cierre: falta validar ${sinRevisar.length} pedido(s).\n\n• ${listaIds}\n\nMarca "OK" en cada uno después de comparar su comprobante contra el dato registrado.`,
+                        'bg-amber-500'
+                    );
+                    return;
+                }
+            }
+
+            const confirmado = await mostrarConfirmacion(`¿Está seguro de que desea ${accionStr} este cierre de caja?`);
+            if (!confirmado) return;
+
+            try {
+                const response = await fetch(`/api/cierres/validar`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        cierre_id: ID_CIERRE_ACTUAL_AUDITORIA,
+                        aprobado: esAprobado,
+                        observaciones: esAprobado ? "Todo correcto" : "Documentación inconsistente o ilegible"
+                    })
+                });
+
+                if(response.ok) {
+                    await mostrarAviso(`El cierre ha sido marcado como ${esAprobado ? 'APROBADO' : 'RECHAZADO'} con éxito.`, esAprobado ? 'bg-emerald-600' : 'bg-rose-600');
+                    cerrarModalAuditoria();
+                    cargarHistorialCierres();
+                } else {
+                    const err = await response.json().catch(() => ({}));
+                    await mostrarAviso(err.detail || "El servidor no pudo procesar el cambio de estado.");
+                    if (response.status === 409) cargarHistorialCierres(); // refresca por si otra pestaña ya lo decidió
+                }
+            } catch(e) {
+                await mostrarAviso("Error al procesar la validación en el servidor.");
+            }
+        }
+
+        document.getElementById("formComprobanteVenta").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const file = document.getElementById("fileComprobanteVenta").files[0];
+            const btn = document.getElementById("btnSubirComprobante");
+            if(!file || !ID_VENTA_ACTUAL_MODAL) return;
+
+            btn.disabled = true;
+            btn.value = "Guardando...";
+
+            const formData = new FormData();
+            formData.append("orden_id", ID_VENTA_ACTUAL_MODAL);
+            formData.append("tienda", TIENDA_VENTA_ACTUAL_MODAL || (SESION_USUARIO && SESION_USUARIO.tienda) || "");
+            formData.append("comprobante", file);
+
+            try {
+                const response = await fetch("/api/ventas/comprobante", { method: "POST", body: formData });
+                if(response.ok) {
+                    const resultado = await response.json();
+                    // Reflejamos el comprobante en memoria (BASE_DATOS_VENTAS y el filtro actual)
+                    // para que el cierre de caja incluya la URL recién subida sin tener que
+                    // recargar Odoo. Esto es solo caché local: si algo falla acá NO debe
+                    // impedir que el modal se cierre (por eso va en su propio try/catch).
+                    try {
+                        [BASE_DATOS_VENTAS, VENTAS_FILTRADAS_LOCAL_ACTUAL].forEach(lista => {
+                            const venta = lista.find(v => v.orden_id === ID_VENTA_ACTUAL_MODAL);
+                            if (venta) {
+                                venta.comprobante_subido = true;
+                                venta.drive_id = resultado.drive_id;
+                                venta.comprobante_url = resultado.comprobante_url;
+                            }
+                        });
+                    } catch (errCache) {
+                        console.warn("No se pudo actualizar la caché local del comprobante:", errCache);
+                    }
+
+                    await mostrarAviso("Comprobante de la venta guardado correctamente.", 'bg-emerald-600');
+                    cerrarModalVenta();
+                } else {
+                    const err = await response.json().catch(() => ({}));
+                    await mostrarAviso("Error al subir el comprobante: " + (err.detail || ""));
+                }
+            } catch (err) { await mostrarAviso("Error de red."); }
+            finally { btn.disabled = false; btn.value = "Guardar Comprobante"; }
+        });
+
+        document.getElementById("formSesionCierre").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById("btnSubirCierre");
+            const tienda = document.getElementById("cierreTiendaNombre").value;
+            const fecha = document.getElementById("filtroFecha").value;
+
+            const fileResumen = document.getElementById("fileResumen").files[0];
+            const fileLote = document.getElementById("fileLote").files[0];
+            const fileDeposito = document.getElementById("fileDeposito").files[0];
+
+            btn.disabled = true;
+            btn.innerHTML = `<span class="inline-flex items-center gap-2"><svg class="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Procesando Cierre Corporativo...</span>`;
+
+            const formData = new FormData();
+            formData.append("fecha", fecha);
+            formData.append("tienda_nombre", tienda);
+            formData.append("usuario", SESION_USUARIO ? SESION_USUARIO.nombre : "Sistema");
+
+            const esquemaVentasAAlmacenar = VENTAS_FILTRADAS_LOCAL_ACTUAL.map(v => ({
+                orden_id: v.orden_id,
+                total_venta: v.total_venta,
+                tipo_pago: v.tipo_pago || v.metodo_pago || 'No especificado',
+                comprobante_url: v.comprobante_url || v.imagen || null
+            }));
+            formData.append("pedidos", JSON.stringify(esquemaVentasAAlmacenar));
+            formData.append("observaciones_cajero", document.getElementById("inputObservacionesCierre").value.trim());
+
+            if(fileResumen) formData.append("archivo_resumen", fileResumen);
+            if(fileLote) formData.append("archivo_lote", fileLote);
+            if(fileDeposito) formData.append("archivo_deposito", fileDeposito);
+
+            try {
+                const response = await fetch("/api/cierres/registrar-sesion", { method: "POST", body: formData });
+                const resultado = await response.json();
+                if(response.ok) {
+                    await mostrarAviso("¡Éxito! El cierre corporativo se guardó y congeló correctamente.", 'bg-emerald-600');
+                    bloquearFormularioCierre();
+                } else {
+                    await mostrarAviso("Error: " + (resultado.detail || "Error interno."));
+                    btn.disabled = false;
+                    btn.innerText = "Subir Documentos y Cerrar Caja";
+                }
+            } catch (error) {
+                await mostrarAviso("Error de red.");
+                btn.disabled = false;
+                btn.innerText = "Subir Documentos y Cerrar Caja";
+            }
+        });
+
+        // Bloqueo Inteligente de Campos Estilo ERP Corporativo
+        function bloquearFormularioCierre() {
+            const form = document.getElementById("formSesionCierre");
+            if (!form) return;
+            const inputs = form.querySelectorAll("input, select, textarea, button");
+            inputs.forEach(el => {
+                el.disabled = true;
+                // Aplicar estilo inmutable a controles estándar
+                if(el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA") {
+                    el.classList.add("bg-slate-50", "text-slate-400", "border-slate-200", "cursor-not-allowed", "shadow-none");
+                }
+                // Convertir botón en un badge permanente de seguridad
+                if(el.tagName === "BUTTON" || el.type === "submit") {
+                    el.classList.add("opacity-60", "cursor-not-allowed", "shadow-none");
+                    if(el.id === "btnSubirCierre") {
+                        el.className = "w-full bg-slate-800 text-slate-300 font-semibold py-3 px-4 rounded-xl flex justify-center items-center gap-2 cursor-not-allowed opacity-75";
+                        el.innerHTML = "🔒 Registro Cerrado e Inmutable";
+                    }
+                }
+            });
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // METAS MENSUALES POR TIENDA (solo admin) — módulo dedicado, distinto
+        // del atajo "Editar" que hay dentro de KPIs.
+        // ══════════════════════════════════════════════════════════════
+        async function cargarMetasMensuales() {
+            const inputMes = document.getElementById("metasMes");
+            if (!inputMes.value) {
+                const hoy = new Date();
+                inputMes.value = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
+            }
+            const [anio, mes] = inputMes.value.split('-').map(Number);
+
+            const cuerpo = document.getElementById("tablaMetasCuerpo");
+            cuerpo.innerHTML = `<tr><td colspan="3" class="text-center py-6 text-slate-400">Cargando...</td></tr>`;
+            try {
+                const resp = await fetch(`/api/metas?anio=${anio}&mes=${mes}`);
+                if (resp.status === 401) { mostrarLogin(); return; }
+                if (resp.status === 403) {
+                    cuerpo.innerHTML = `<tr><td colspan="3" class="text-center py-6 text-slate-400">Este módulo es exclusivo del administrador.</td></tr>`;
+                    return;
+                }
+                if (!resp.ok) throw new Error("No se pudieron cargar las metas.");
+                const metas = await resp.json();
+                cuerpo.innerHTML = "";
+                metas.forEach(m => {
+                    const tiendaEscapada = (m.tienda || "").replace(/'/g, "\\'");
+                    cuerpo.innerHTML += `
+                        <tr class="border-b border-slate-100 hover:bg-slate-50 text-xs">
+                            <td class="px-4 py-3 font-semibold text-slate-900">${m.tienda}</td>
+                            <td class="px-4 py-3 text-right font-bold text-slate-700">$${m.monto_meta.toFixed(2)}</td>
+                            <td class="px-4 py-3 text-center">
+                                <button onclick="editarMetaDesdeTabla('${tiendaEscapada}', ${anio}, ${mes}, ${m.monto_meta})" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold px-2.5 py-1 rounded-md">✏️ Editar</button>
+                            </td>
+                        </tr>
+                    `;
+                });
+            } catch (e) {
+                cuerpo.innerHTML = `<tr><td colspan="3" class="text-center py-6 text-rose-600 font-medium">⚠️ ${e.message}</td></tr>`;
+            }
+        }
+
+        async function editarMetaDesdeTabla(tienda, anio, mes, actual) {
+            const nuevo = await mostrarPrompt(`Meta mensual para ${tienda} — ${String(mes).padStart(2, '0')}/${anio}:`, String(actual));
+            if (nuevo === null) return;
+            const monto = parseFloat(nuevo);
+            if (isNaN(monto) || monto < 0) { await mostrarAviso("Ingresa un monto válido."); return; }
+            try {
+                const resp = await fetch("/api/metas", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ tienda, anio, mes, monto_meta: monto })
+                });
+                const datos = await resp.json();
+                if (!resp.ok) throw new Error(datos.detail || "No se pudo guardar la meta.");
+                cargarMetasMensuales();
+            } catch (e) {
+                await mostrarAviso("Error: " + e.message);
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // COMISIONES (solo admin) — 2% sobre Efectivo (Caja+Transferencia+
+        // Cheque, sin IVA) + 2% sobre Tarjeta (sin IVA, menos retención de
+        // tarjeta 5.18%), repartido en partes iguales entre los cajeros que
+        // vendieron en cada tienda durante el rango de fechas.
+        // ══════════════════════════════════════════════════════════════
+        let COMISIONES_MEMORIA = [];
+
+        function inicializarPantallaComisiones() {
+            const inputDesde = document.getElementById("comisionesDesde");
+            const inputHasta = document.getElementById("comisionesHasta");
+            if (!inputDesde.value || !inputHasta.value) {
+                const hoy = new Date();
+                const primerDiaMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+                inputDesde.value = primerDiaMes.toISOString().split('T')[0];
+                inputHasta.value = hoy.toISOString().split('T')[0];
+            }
+            cargarComisiones();
+        }
+
+        async function cargarComisiones() {
+            const desde = document.getElementById("comisionesDesde").value;
+            const hasta = document.getElementById("comisionesHasta").value;
+            const cuerpo = document.getElementById("tablaComisionesCuerpo");
+            if (!desde || !hasta) { return; }
+
+            cuerpo.innerHTML = `<tr><td colspan="9" class="text-center py-6 text-slate-400">Consultando Odoo, puede tardar unos segundos...</td></tr>`;
+            try {
+                const resp = await fetch(`/api/comisiones?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}`);
+                if (resp.status === 401) { mostrarLogin(); return; }
+                if (resp.status === 403) {
+                    cuerpo.innerHTML = `<tr><td colspan="9" class="text-center py-6 text-slate-400">Este módulo es exclusivo del administrador.</td></tr>`;
+                    return;
+                }
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    throw new Error(err.detail || "No se pudo calcular las comisiones.");
+                }
+                const datos = await resp.json();
+                COMISIONES_MEMORIA = datos.tiendas || [];
+                renderizarTablaComisiones();
+            } catch (e) {
+                cuerpo.innerHTML = `<tr><td colspan="9" class="text-center py-6 text-rose-600 font-medium">⚠️ ${e.message}</td></tr>`;
+            }
+        }
+
+        function renderizarTablaComisiones() {
+            const cuerpo = document.getElementById("tablaComisionesCuerpo");
+            cuerpo.innerHTML = "";
+            if (COMISIONES_MEMORIA.length === 0) {
+                cuerpo.innerHTML = `<tr><td colspan="9" class="text-center py-6 text-slate-400 italic">Sin ventas registradas en Odoo para este rango de fechas.</td></tr>`;
+                return;
+            }
+            COMISIONES_MEMORIA.forEach(t => {
+                cuerpo.innerHTML += `
+                    <tr class="border-b border-slate-100 hover:bg-slate-50 transition">
+                        <td class="px-4 py-3 font-semibold text-slate-900">${t.tienda}</td>
+                        <td class="px-4 py-3 text-right">$${t.total_efectivo.toFixed(2)}</td>
+                        <td class="px-4 py-3 text-right text-slate-500">$${t.subtotal_efectivo.toFixed(2)}</td>
+                        <td class="px-4 py-3 text-right">$${t.total_tarjeta.toFixed(2)}</td>
+                        <td class="px-4 py-3 text-right text-slate-500">$${t.subtotal_tarjeta.toFixed(2)}</td>
+                        <td class="px-4 py-3 text-right font-bold text-emerald-700">$${t.total_comision.toFixed(2)}</td>
+                        <td class="px-4 py-3 text-center">${t.cantidad_colaboradores}</td>
+                        <td class="px-4 py-3 text-right font-semibold">$${t.comision_por_colaborador.toFixed(2)}</td>
+                        <td class="px-4 py-3 text-center">
+                            <button onclick="abrirDetalleComision('${t.tienda.replace(/'/g, "\\'")}')" class="bg-slate-800 hover:bg-slate-950 text-white text-[11px] font-medium px-3 py-1.5 rounded-lg transition-colors">🔍 Ver</button>
+                        </td>
+                    </tr>`;
+            });
+        }
+
+        function abrirDetalleComision(nombreTienda) {
+            const t = COMISIONES_MEMORIA.find(x => x.tienda === nombreTienda);
+            if (!t) return;
+
+            document.getElementById("detalleComisionTitulo").innerText = `💰 Detalle de Comisión — ${t.tienda}`;
+
+            document.getElementById("detalleComisionEfectivo").innerHTML = `
+                <tr><td class="px-2 py-1.5">total</td><td class="px-2 py-1.5 text-right">$${t.total_efectivo.toFixed(2)}</td></tr>
+                <tr><td class="px-2 py-1.5 font-semibold">SIN IVA</td><td class="px-2 py-1.5 text-right font-semibold">$${t.subtotal_efectivo.toFixed(2)}</td></tr>
+                <tr><td class="px-2 py-1.5">2%</td><td class="px-2 py-1.5 text-right">$${t.comision_efectivo.toFixed(2)}</td></tr>
+                <tr class="bg-slate-50 font-bold"><td class="px-2 py-1.5">÷ ${t.cantidad_colaboradores}</td><td class="px-2 py-1.5 text-right">$${(t.cantidad_colaboradores ? t.comision_efectivo / t.cantidad_colaboradores : 0).toFixed(2)}</td></tr>
+            `;
+            document.getElementById("detalleComisionTarjeta").innerHTML = `
+                <tr><td class="px-2 py-1.5">total</td><td class="px-2 py-1.5 text-right">$${t.total_tarjeta.toFixed(2)}</td></tr>
+                <tr><td class="px-2 py-1.5 font-semibold">SIN IVA</td><td class="px-2 py-1.5 text-right font-semibold">$${t.subtotal_tarjeta.toFixed(2)}</td></tr>
+                <tr><td class="px-2 py-1.5">RET. Tarj 5.18%</td><td class="px-2 py-1.5 text-right">$${t.retencion_tarjeta.toFixed(2)}</td></tr>
+                <tr><td class="px-2 py-1.5 font-semibold">total</td><td class="px-2 py-1.5 text-right font-semibold">$${t.neto_tarjeta.toFixed(2)}</td></tr>
+                <tr><td class="px-2 py-1.5">2%</td><td class="px-2 py-1.5 text-right">$${t.comision_tarjeta.toFixed(2)}</td></tr>
+                <tr class="bg-slate-50 font-bold"><td class="px-2 py-1.5">÷ ${t.cantidad_colaboradores}</td><td class="px-2 py-1.5 text-right">$${(t.cantidad_colaboradores ? t.comision_tarjeta / t.cantidad_colaboradores : 0).toFixed(2)}</td></tr>
+            `;
+
+            const cuerpoColab = document.getElementById("detalleComisionColaboradores");
+            if (t.colaboradores.length === 0) {
+                cuerpoColab.innerHTML = `<tr><td colspan="2" class="px-3 py-2 text-center text-slate-400 italic">Sin cajeros identificados en este periodo.</td></tr>`;
+            } else {
+                cuerpoColab.innerHTML = t.colaboradores.map(nombre => `
+                    <tr><td class="px-3 py-1.5">${nombre}</td><td class="px-3 py-1.5 text-right">$${t.comision_por_colaborador.toFixed(2)}</td></tr>
+                `).join('');
+            }
+            document.getElementById("detalleComisionTotal").innerText = `$${t.total_comision.toFixed(2)}`;
+
+            document.getElementById("modalDetalleComision").classList.remove("hidden");
+        }
+
+        function cerrarDetalleComision() {
+            document.getElementById("modalDetalleComision").classList.add("hidden");
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // USUARIOS DEL SISTEMA (solo admin)
+        // ══════════════════════════════════════════════════════════════
+        async function cargarUsuarios() {
+            const cuerpo = document.getElementById("tablaUsuariosCuerpo");
+            cuerpo.innerHTML = `<tr><td colspan="6" class="text-center py-6 text-slate-400">Cargando usuarios...</td></tr>`;
+            try {
+                const resp = await fetch("/api/usuarios");
+                if (resp.status === 401) { mostrarLogin(); return; }
+                if (resp.status === 403) {
+                    cuerpo.innerHTML = `<tr><td colspan="6" class="text-center py-6 text-slate-400">Este módulo es exclusivo del administrador.</td></tr>`;
+                    return;
+                }
+                if (!resp.ok) throw new Error("No se pudo cargar la lista de usuarios.");
+                USUARIOS_MEMORIA = await resp.json();
+                aplicarFiltrosUsuarios();
+            } catch (e) {
+                cuerpo.innerHTML = `<tr><td colspan="6" class="text-center py-6 text-rose-600 font-medium">⚠️ ${e.message}</td></tr>`;
+            }
+        }
+
+        // Filtra sobre lo ya cargado en memoria — responde al instante, sin
+        // volver a pedirle nada al servidor por cada letra que se escribe.
+        function aplicarFiltrosUsuarios() {
+            const texto = document.getElementById("filtroUsuariosTexto").value.trim().toLowerCase();
+            const rol = document.getElementById("filtroUsuariosRol").value;
+            const estado = document.getElementById("filtroUsuariosEstado").value;
+
+            const filtrado = USUARIOS_MEMORIA.filter(u => {
+                if (texto && !(u.nombre || "").toLowerCase().includes(texto) && !(u.email || "").toLowerCase().includes(texto)) return false;
+                if (rol && u.rol !== rol) return false;
+                if (estado === "activo" && !u.activo) return false;
+                if (estado === "inactivo" && u.activo) return false;
+                return true;
+            });
+
+            renderizarTablaUsuarios(filtrado);
+        }
+
+        function renderizarTablaUsuarios(usuarios) {
+            const cuerpo = document.getElementById("tablaUsuariosCuerpo");
+            cuerpo.innerHTML = "";
+
+            if (USUARIOS_MEMORIA.length === 0) {
+                cuerpo.innerHTML = `<tr><td colspan="6" class="text-center py-6 text-slate-400">No hay usuarios registrados todavía.</td></tr>`;
+                return;
+            }
+            if (usuarios.length === 0) {
+                cuerpo.innerHTML = `<tr><td colspan="6" class="text-center py-6 text-slate-400">Ningún usuario coincide con los filtros aplicados.</td></tr>`;
+                return;
+            }
+
+            usuarios.forEach(u => {
+                const estadoBadge = u.activo
+                    ? `<span class="bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/10 text-xs px-2.5 py-1 rounded-md font-semibold">Activo</span>`
+                    : `<span class="bg-slate-100 text-slate-500 ring-1 ring-slate-400/10 text-xs px-2.5 py-1 rounded-md font-semibold">Inactivo</span>`;
+                const nombreEscapado = (u.nombre || "").replace(/'/g, "\\'");
+                cuerpo.innerHTML += `
+                    <tr class="border-b border-slate-100 hover:bg-slate-50 text-xs">
+                        <td class="px-4 py-3 font-semibold text-slate-900">${u.nombre}</td>
+                        <td class="px-4 py-3 text-slate-600">${u.email}</td>
+                        <td class="px-4 py-3">${u.rol === 'admin' ? '👑 Admin' : 'Usuario'}</td>
+                        <td class="px-4 py-3 text-slate-600">${u.tienda || (u.rol === 'admin' ? '— (ve todo)' : 'Sin asignar')}</td>
+                        <td class="px-4 py-3 text-center">${estadoBadge}</td>
+                        <td class="px-4 py-3 text-center space-x-1 whitespace-nowrap">
+                            <button onclick="resetPasswordUsuario(${u.id}, '${nombreEscapado}')" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold px-2 py-1 rounded-md">🔑 Contraseña</button>
+                            <button onclick="alternarActivoUsuario(${u.id}, ${!u.activo})" class="${u.activo ? 'bg-rose-100 hover:bg-rose-200 text-rose-700' : 'bg-emerald-100 hover:bg-emerald-200 text-emerald-700'} text-[11px] font-semibold px-2 py-1 rounded-md">
+                                ${u.activo ? 'Desactivar' : 'Reactivar'}
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        function alternarCampoTiendaUsuario() {
+            const rol = document.getElementById("nuevoUsuarioRol").value;
+            document.getElementById("contenedorTiendaNuevoUsuario").classList.toggle("hidden", rol === 'admin');
+        }
+
+        document.getElementById("formNuevoUsuario").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const nombre = document.getElementById("nuevoUsuarioNombre").value.trim();
+            const email = document.getElementById("nuevoUsuarioEmail").value.trim();
+            const password = document.getElementById("nuevoUsuarioPassword").value;
+            const rol = document.getElementById("nuevoUsuarioRol").value;
+            const tienda = rol === 'admin' ? null : document.getElementById("nuevoUsuarioTienda").value;
+
+            try {
+                const resp = await fetch("/api/usuarios", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ nombre, email, password, rol, tienda })
+                });
+                const datos = await resp.json();
+                if (!resp.ok) throw new Error(datos.detail || "No se pudo crear el usuario.");
+                await mostrarAviso(`Usuario "${nombre}" creado correctamente.`, 'bg-emerald-600');
+                e.target.reset();
+                alternarCampoTiendaUsuario();
+                cargarUsuarios();
+            } catch (err) {
+                await mostrarAviso("Error: " + err.message);
+            }
+        });
+
+        async function alternarActivoUsuario(id, activar) {
+            const confirmado = await mostrarConfirmacion(activar ? "¿Reactivar este usuario?" : "¿Desactivar este usuario? No podrá iniciar sesión.");
+            if (!confirmado) return;
+            try {
+                const resp = await fetch(`/api/usuarios/${id}`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ activo: activar })
+                });
+                const datos = await resp.json();
+                if (!resp.ok) throw new Error(datos.detail || "No se pudo actualizar el usuario.");
+                cargarUsuarios();
+            } catch (err) {
+                await mostrarAviso("Error: " + err.message);
+            }
+        }
+
+        async function resetPasswordUsuario(id, nombre) {
+            const nueva = await mostrarPrompt(`Nueva contraseña para ${nombre} (mínimo 6 caracteres):`);
+            if (!nueva) return;
+            if (nueva.length < 6) { await mostrarAviso("La contraseña debe tener al menos 6 caracteres."); return; }
+            try {
+                const resp = await fetch(`/api/usuarios/${id}`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ password: nueva })
+                });
+                const datos = await resp.json();
+                if (!resp.ok) throw new Error(datos.detail || "No se pudo cambiar la contraseña.");
+                await mostrarAviso("Contraseña actualizada.", 'bg-emerald-600');
+            } catch (err) {
+                await mostrarAviso("Error: " + err.message);
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // ARRANQUE
+        // ══════════════════════════════════════════════════════════════
+        iniciarApp();
+
+        // Válvula de escape: si por lo que sea un modal se queda "pegado" (ej. un
+        // error de JS interrumpe el flujo antes de llegar al cierre normal), Escape
+        // siempre lo cierra. Así ningún bug puede dejar al usuario sin poder hacer nada.
+        document.addEventListener("keydown", (e) => {
+            if (e.key !== "Escape") return;
+            if (!document.getElementById("modalVenta").classList.contains("hidden")) cerrarModalVenta();
+            if (!document.getElementById("modalAuditoriaCierre").classList.contains("hidden")) cerrarModalAuditoria();
+            if (!document.getElementById("navPrincipal").classList.contains("-translate-x-full")) cerrarMenuPrincipal();
+            if (!document.getElementById("modalDialogo").classList.contains("hidden")) _cerrarDialogoComoCancelar();
+        });
+    </script>
+</body>
+</html>

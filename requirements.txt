@@ -1,7 +1,10 @@
-fastapi==0.110.0 
-uvicorn==0.28.0 
-sqlalchemy==2.0.28 
-psycopg[binary] 
-google-api-python-client==2.122.0 
-google-auth-httplib2==0.2.0 
+fastapi==0.110.0
+uvicorn==0.28.0
+sqlalchemy==2.0.28
+psycopg2-binary==2.9.12
+python-multipart==0.0.32
+python-dotenv==1.2.3
+google-api-python-client==2.122.0
+google-auth-httplib2==0.2.0
 google-auth-oauthlib==1.2.0
+bcrypt==5.0.0
