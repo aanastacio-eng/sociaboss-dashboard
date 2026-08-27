@@ -11,12 +11,21 @@ from dotenv import load_dotenv
 load_dotenv()
 
 def obtener_conexion():
-    """Establece conexión con PostgreSQL usando las variables de entorno
-    (POSTGRES_HOST/DB/USER/PASSWORD/PORT), con los valores de desarrollo local
-    como respaldo si no hay .env."""
+    """Establece conexión con PostgreSQL.
+
+    En Vercel, la integración nativa de Neon inyecta DATABASE_URL (más las
+    variables POSTGRES_* "legacy" con otros nombres: POSTGRES_DATABASE en vez
+    de POSTGRES_DB, sin POSTGRES_PORT), así que se usa DATABASE_URL cuando
+    está presente. Si no, se arma la conexión con POSTGRES_HOST/DB/USER/
+    PASSWORD/PORT (con POSTGRES_DATABASE como alias de POSTGRES_DB), con los
+    valores de desarrollo local como respaldo si no hay .env."""
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        return psycopg2.connect(database_url)
+
     return psycopg2.connect(
         host=os.getenv("POSTGRES_HOST", "localhost"),
-        database=os.getenv("POSTGRES_DB", "sociaboss"),
+        database=os.getenv("POSTGRES_DB") or os.getenv("POSTGRES_DATABASE", "sociaboss"),
         user=os.getenv("POSTGRES_USER", "postgres"),
         password=os.getenv("POSTGRES_PASSWORD", "123"),
         port=os.getenv("POSTGRES_PORT", "5433"),
