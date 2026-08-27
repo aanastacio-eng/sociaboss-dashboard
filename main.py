@@ -42,6 +42,12 @@ def _env_requerida(nombre):
         )
     return valor
 
+# Ancla las rutas a "public/" al directorio real de este archivo: en el
+# entorno serverless de Vercel el working directory del proceso no es
+# necesariamente la carpeta del proyecto, así que "public/..." (relativo a
+# cwd) puede no resolver aunque el archivo sí esté desplegado.
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 app = FastAPI(title="SociaBoss Dashboard API", version="2.0")
 
 app.add_middleware(
@@ -74,7 +80,7 @@ TIENDAS_CONOCIDAS = [
 
 @app.get("/")
 def index():
-    ruta_html = os.path.join("public", "index.html")
+    ruta_html = os.path.join(BASE_DIR, "public", "index.html")
     if os.path.exists(ruta_html):
         return FileResponse(ruta_html)
     return {"mensaje": "Servidor corriendo, pero falta el archivo public/index.html"}
@@ -84,13 +90,13 @@ def index():
 # default cubre TODA la app y no solo una subcarpeta.
 @app.get("/manifest.json")
 def manifest_pwa():
-    return FileResponse(os.path.join("public", "manifest.json"), media_type="application/manifest+json")
+    return FileResponse(os.path.join(BASE_DIR, "public", "manifest.json"), media_type="application/manifest+json")
 
 @app.get("/sw.js")
 def service_worker():
-    return FileResponse(os.path.join("public", "sw.js"), media_type="application/javascript")
+    return FileResponse(os.path.join(BASE_DIR, "public", "sw.js"), media_type="application/javascript")
 
-app.mount("/icons", StaticFiles(directory=os.path.join("public", "icons")), name="icons")
+app.mount("/icons", StaticFiles(directory=os.path.join(BASE_DIR, "public", "icons")), name="icons")
 
 
 def _normalizar_tienda(nombre):
