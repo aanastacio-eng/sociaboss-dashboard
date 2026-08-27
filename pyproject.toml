@@ -20,12 +20,3 @@ dependencies = [
     "reportlab==5.0.1",
     "anthropic==1.1.0",
 ]
-
-[tool.vercel.fastapi.static]
-# La app sirve "public/" (index.html, manifest, íconos) desde adentro del
-# propio proceso FastAPI vía StaticFiles/FileResponse. Sin esto, Vercel
-# "promueve" esa carpeta al CDN y la saca del bundle de la función — el
-# archivo sigue respondiendo en el navegador (lo sirve el CDN), pero el
-# StaticFiles montado a nivel de módulo ya no encuentra el directorio local
-# y tumba el import de main.py con RuntimeError.
-cdn = false

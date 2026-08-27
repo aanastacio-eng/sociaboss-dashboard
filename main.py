@@ -42,10 +42,9 @@ def _env_requerida(nombre):
         )
     return valor
 
-# Ancla las rutas a "public/" al directorio real de este archivo: en el
-# entorno serverless de Vercel el working directory del proceso no es
-# necesariamente la carpeta del proyecto, así que "public/..." (relativo a
-# cwd) puede no resolver aunque el archivo sí esté desplegado.
+# Ancla las rutas a "webapp_static/" al directorio real de este archivo en
+# vez de al working directory del proceso (que en el runtime serverless de
+# Vercel no es necesariamente la carpeta del proyecto).
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 app = FastAPI(title="SociaBoss Dashboard API", version="2.0")
@@ -80,23 +79,23 @@ TIENDAS_CONOCIDAS = [
 
 @app.get("/")
 def index():
-    ruta_html = os.path.join(BASE_DIR, "public", "index.html")
+    ruta_html = os.path.join(BASE_DIR, "webapp_static", "index.html")
     if os.path.exists(ruta_html):
         return FileResponse(ruta_html)
-    return {"mensaje": "Servidor corriendo, pero falta el archivo public/index.html"}
+    return {"mensaje": "Servidor corriendo, pero falta el archivo webapp_static/index.html"}
 
 # ─── PWA: manifest + service worker + íconos. El service worker se sirve
 # desde la raíz (no desde /icons/...) a propósito — así su "scope" por
 # default cubre TODA la app y no solo una subcarpeta.
 @app.get("/manifest.json")
 def manifest_pwa():
-    return FileResponse(os.path.join(BASE_DIR, "public", "manifest.json"), media_type="application/manifest+json")
+    return FileResponse(os.path.join(BASE_DIR, "webapp_static", "manifest.json"), media_type="application/manifest+json")
 
 @app.get("/sw.js")
 def service_worker():
-    return FileResponse(os.path.join(BASE_DIR, "public", "sw.js"), media_type="application/javascript")
+    return FileResponse(os.path.join(BASE_DIR, "webapp_static", "sw.js"), media_type="application/javascript")
 
-app.mount("/icons", StaticFiles(directory=os.path.join(BASE_DIR, "public", "icons")), name="icons")
+app.mount("/icons", StaticFiles(directory=os.path.join(BASE_DIR, "webapp_static", "icons")), name="icons")
 
 
 def _normalizar_tienda(nombre):
