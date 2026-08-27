@@ -20,7 +20,7 @@ def test_drive_upload():
         
         temp_filename = "prueba_dashboard.txt"
         with open(temp_filename, "w") as f:
-            f.write("Prueba desde el Backend de Sociaboss.")
+            f.write("Prueba desde el Backend de Cultura Tejida.")
             
         print("Intentando subir el archivo...")
         file_metadata = {
