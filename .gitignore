@@ -5,3 +5,4 @@ __pycache__/
 .env
 sociaboss.db
 config/sociaboss.db
+backups/

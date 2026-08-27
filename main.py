@@ -11,6 +11,7 @@ if hasattr(sys.stdout, "reconfigure"):
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 import os
 import re
 import shutil
@@ -77,6 +78,19 @@ def index():
     if os.path.exists(ruta_html):
         return FileResponse(ruta_html)
     return {"mensaje": "Servidor corriendo, pero falta el archivo public/index.html"}
+
+# ─── PWA: manifest + service worker + íconos. El service worker se sirve
+# desde la raíz (no desde /icons/...) a propósito — así su "scope" por
+# default cubre TODA la app y no solo una subcarpeta.
+@app.get("/manifest.json")
+def manifest_pwa():
+    return FileResponse(os.path.join("public", "manifest.json"), media_type="application/manifest+json")
+
+@app.get("/sw.js")
+def service_worker():
+    return FileResponse(os.path.join("public", "sw.js"), media_type="application/javascript")
+
+app.mount("/icons", StaticFiles(directory=os.path.join("public", "icons")), name="icons")
 
 
 def _normalizar_tienda(nombre):
@@ -200,10 +214,34 @@ def obtener_usuario_actual(request: Request):
 
 
 def requerir_admin(usuario=Depends(obtener_usuario_actual)):
-    if usuario["rol"] != "admin":
+    # El superadmin es un superconjunto del admin: todo lo que puede hacer un
+    # admin, también lo puede hacer el superadmin.
+    if usuario["rol"] not in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Solo un administrador puede hacer esto.")
     return usuario
 
+
+def requerir_superadmin(usuario=Depends(obtener_usuario_actual)):
+    # Para los módulos reservados exclusivamente al superadmin (KPIs,
+    # Comisiones, Auditoría, Reporte Ejecutivo, Roles) — un admin normal NO
+    # tiene acceso, a diferencia de requerir_admin.
+    if usuario["rol"] != "superadmin":
+        raise HTTPException(status_code=403, detail="Este módulo está reservado al superadministrador.")
+    return usuario
+
+
+MAX_INTENTOS_FALLIDOS = 5
+MINUTOS_BLOQUEO_LOGIN = 15
+
+def _registrar_auditoria(cursor, usuario, accion, detalle=None):
+    """Deja constancia de una acción sensible. Recibe el cursor YA ABIERTO de
+    la transacción en curso (no abre conexión propia) para que quede
+    confirmada junto con la acción que registra, o revertida junto con ella
+    si algo más en esa misma transacción falla."""
+    cursor.execute(
+        "INSERT INTO auditoria (usuario_id, usuario_nombre, accion, detalle) VALUES (%s, %s, %s, %s)",
+        (usuario.get("id") if usuario else None, usuario.get("nombre") if usuario else "Sistema", accion, detalle)
+    )
 
 @app.post("/api/auth/login")
 async def login(response: Response, request: Request):
@@ -224,15 +262,33 @@ async def login(response: Response, request: Request):
     try:
         cursor.execute("""
             SELECT u.id, u.nombre, u.email, u.password_hash, u.rol, u.activo,
-                   u.tienda_id, t.nombre AS tienda_nombre
+                   u.tienda_id, t.nombre AS tienda_nombre, u.intentos_fallidos, u.bloqueado_hasta
             FROM usuarios u
             LEFT JOIN tiendas t ON t.id = u.tienda_id
             WHERE u.email = %s
         """, (email,))
         usuario = cursor.fetchone()
 
+        # Bloqueo temporal por fuerza bruta: si ya está bloqueado, ni siquiera
+        # se verifica la contraseña (así no se "gasta" el intento).
+        if usuario and usuario.get("bloqueado_hasta") and usuario["bloqueado_hasta"] > datetime.utcnow():
+            minutos_restantes = max(1, int((usuario["bloqueado_hasta"] - datetime.utcnow()).total_seconds() / 60))
+            raise HTTPException(status_code=429, detail=f"Demasiados intentos fallidos. Probá de nuevo en {minutos_restantes} minuto(s).")
+
         if not usuario or not usuario["activo"] or not _verificar_password(password, usuario["password_hash"]):
+            if usuario:
+                nuevos_intentos = (usuario.get("intentos_fallidos") or 0) + 1
+                if nuevos_intentos >= MAX_INTENTOS_FALLIDOS:
+                    bloqueado_hasta = datetime.utcnow() + timedelta(minutes=MINUTOS_BLOQUEO_LOGIN)
+                    cursor.execute("UPDATE usuarios SET intentos_fallidos = 0, bloqueado_hasta = %s WHERE id = %s", (bloqueado_hasta, usuario["id"]))
+                    _registrar_auditoria(cursor, usuario, "login_bloqueado", f"{MAX_INTENTOS_FALLIDOS} intentos fallidos seguidos")
+                else:
+                    cursor.execute("UPDATE usuarios SET intentos_fallidos = %s WHERE id = %s", (nuevos_intentos, usuario["id"]))
+                conexion.commit()
             raise HTTPException(status_code=401, detail="Email o contraseña incorrectos.")
+
+        if usuario.get("intentos_fallidos"):
+            cursor.execute("UPDATE usuarios SET intentos_fallidos = 0, bloqueado_hasta = NULL WHERE id = %s", (usuario["id"],))
 
         token = secrets.token_urlsafe(32)
         expira_en = datetime.utcnow() + timedelta(hours=SESSION_DURATION_HORAS)
@@ -251,6 +307,122 @@ async def login(response: Response, request: Request):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+def _enviar_email(destinatario, asunto, cuerpo_html):
+    """Manda un email por SMTP usando las variables de entorno SMTP_*. Si no
+    están configuradas, no rompe nada — simplemente no se puede enviar (se
+    devuelve False para que el endpoint que llama decida qué avisar)."""
+    host = os.getenv("SMTP_HOST")
+    if not host:
+        return False
+    puerto = int(os.getenv("SMTP_PORT", "587"))
+    usuario_smtp = os.getenv("SMTP_USER")
+    password_smtp = os.getenv("SMTP_PASSWORD")
+    remitente = os.getenv("SMTP_FROM", usuario_smtp)
+
+    import smtplib
+    from email.mime.text import MIMEText
+    msg = MIMEText(cuerpo_html, "html", "utf-8")
+    msg["Subject"] = asunto
+    msg["From"] = remitente
+    msg["To"] = destinatario
+    try:
+        with smtplib.SMTP(host, puerto, timeout=10) as servidor:
+            servidor.starttls()
+            if usuario_smtp and password_smtp:
+                servidor.login(usuario_smtp, password_smtp)
+            servidor.sendmail(remitente, [destinatario], msg.as_string())
+        return True
+    except Exception as e:
+        print(f"⚠️ No se pudo enviar el email a {destinatario}: {e}")
+        return False
+
+
+MINUTOS_VALIDEZ_TOKEN_RECUPERACION = 60
+
+@app.post("/api/auth/olvide-password")
+async def olvide_password(request: Request):
+    """Por seguridad, siempre responde igual exista o no el email — así
+    nadie puede usar este endpoint para adivinar qué emails están
+    registrados en el sistema."""
+    from config.db_manager import RealDictCursor
+    try:
+        body = await request.json()
+        email = (body.get("email") or "").strip().lower()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Solicitud inválida.")
+
+    mensaje_generico = {"status": "success", "mensaje": "Si ese email está registrado, te llegará un correo con instrucciones."}
+    if not email:
+        return mensaje_generico
+
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        cursor.execute("SELECT id, nombre, activo FROM usuarios WHERE email = %s", (email,))
+        usuario = cursor.fetchone()
+        if not usuario or not usuario["activo"]:
+            return mensaje_generico
+
+        token = secrets.token_urlsafe(32)
+        expira_en = datetime.utcnow() + timedelta(minutes=MINUTOS_VALIDEZ_TOKEN_RECUPERACION)
+        cursor.execute(
+            "INSERT INTO tokens_recuperacion (token, usuario_id, expira_en) VALUES (%s, %s, %s)",
+            (token, usuario["id"], expira_en)
+        )
+        conexion.commit()
+
+        base_url = str(request.base_url).rstrip("/")
+        link = f"{base_url}/?reset={token}"
+        enviado = _enviar_email(
+            email, "Recuperar contraseña — SociaBoss",
+            f"""<p>Hola {usuario['nombre']},</p>
+            <p>Pediste restablecer tu contraseña de SociaBoss. Este enlace vale por {MINUTOS_VALIDEZ_TOKEN_RECUPERACION} minutos:</p>
+            <p><a href="{link}">{link}</a></p>
+            <p>Si no fuiste vos, ignorá este correo — tu contraseña actual sigue funcionando igual.</p>"""
+        )
+        if not enviado:
+            print(f"ℹ️ SMTP no configurado — link de recuperación para {email}: {link}")
+        return mensaje_generico
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+@app.post("/api/auth/resetear-password")
+async def resetear_password(request: Request):
+    from config.db_manager import RealDictCursor
+    try:
+        body = await request.json()
+        token = (body.get("token") or "").strip()
+        password_nueva = body.get("password") or ""
+    except Exception:
+        raise HTTPException(status_code=400, detail="Solicitud inválida.")
+
+    if not token or len(password_nueva) < 6:
+        raise HTTPException(status_code=400, detail="Token y una contraseña de al menos 6 caracteres son obligatorios.")
+
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        cursor.execute("SELECT usuario_id, expira_en, usado FROM tokens_recuperacion WHERE token = %s", (token,))
+        fila = cursor.fetchone()
+        if not fila or fila["usado"] or fila["expira_en"] < datetime.utcnow():
+            raise HTTPException(status_code=400, detail="Este enlace ya no es válido — pedí uno nuevo desde 'Olvidé mi contraseña'.")
+
+        cursor.execute("UPDATE usuarios SET password_hash = %s, intentos_fallidos = 0, bloqueado_hasta = NULL WHERE id = %s",
+                        (_hash_password(password_nueva), fila["usuario_id"]))
+        cursor.execute("UPDATE tokens_recuperacion SET usado = TRUE WHERE token = %s", (token,))
+        # Cierra cualquier sesión activa — si alguien más tenía la cuenta abierta, queda afuera.
+        cursor.execute("DELETE FROM sesiones WHERE usuario_id = %s", (fila["usuario_id"],))
+        conexion.commit()
+        return {"status": "success", "mensaje": "Contraseña actualizada. Ya podés iniciar sesión."}
+    except HTTPException:
+        raise
     finally:
         cursor.close()
         conexion.close()
@@ -277,7 +449,10 @@ def quien_soy(usuario=Depends(obtener_usuario_actual)):
     return _usuario_publico(usuario)
 
 
-# ─── GESTIÓN DE USUARIOS (solo admin) ───
+# ─── GESTIÓN DE USUARIOS (admin y superadmin) — crear, editar datos básicos,
+# activar/desactivar. El rol en sí (crear_usuario lo fija solo a 'admin' o
+# 'usuario'; para 'superadmin', o para cambiar el rol de alguien ya
+# existente, ver el módulo ROLES más abajo, exclusivo de superadmin) ───
 @app.get("/api/usuarios")
 def listar_usuarios(admin=Depends(requerir_admin)):
     from config.db_manager import RealDictCursor
@@ -332,6 +507,7 @@ async def crear_usuario(request: Request, admin=Depends(requerir_admin)):
             VALUES (%s, %s, %s, %s, %s) RETURNING id
         """, (nombre, email, _hash_password(password), rol, tienda_id))
         nuevo_id = cursor.fetchone()["id"]
+        _registrar_auditoria(cursor, admin, "crear_usuario", f"{nombre} <{email}> — rol: {rol}" + (f", tienda: {tienda_nombre}" if tienda_nombre else ""))
         conexion.commit()
         return {"status": "success", "id": nuevo_id}
     except HTTPException:
@@ -355,6 +531,11 @@ async def editar_usuario(usuario_id: int, request: Request, admin=Depends(requer
         existente = cursor.fetchone()
         if not existente:
             raise HTTPException(status_code=404, detail="Usuario no encontrado.")
+
+        # Un admin normal no puede tocar (desactivar, resetear contraseña,
+        # renombrar) la cuenta de un superadmin — solo otro superadmin puede.
+        if existente["rol"] == "superadmin" and admin["rol"] != "superadmin":
+            raise HTTPException(status_code=403, detail="Solo un superadministrador puede editar esta cuenta.")
 
         campos, valores = [], []
 
@@ -405,8 +586,75 @@ async def editar_usuario(usuario_id: int, request: Request, admin=Depends(requer
         if "password" in body and body.get("password"):
             cursor.execute("DELETE FROM sesiones WHERE usuario_id = %s", (usuario_id,))
 
+        _registrar_auditoria(cursor, admin, "editar_usuario", f"usuario_id={usuario_id} — campos: {', '.join(c.split(' =')[0] for c in campos)}")
         conexion.commit()
         return {"status": "success"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+# ─── MÓDULO ROLES (solo superadmin) — otorgar/quitar el rol "admin" o
+# "superadmin" es más sensible que la edición general de un usuario (nombre,
+# tienda, contraseña, activo/inactivo, que sigue en /api/usuarios y la maneja
+# cualquier admin), así que queda en un endpoint y una pantalla aparte,
+# reservados exclusivamente al superadmin. ───
+@app.put("/api/usuarios/{usuario_id}/rol")
+async def cambiar_rol_usuario(usuario_id: int, request: Request, superadmin=Depends(requerir_superadmin)):
+    from config.db_manager import RealDictCursor
+
+    body = await request.json()
+    nuevo_rol = (body.get("rol") or "").strip()
+    if nuevo_rol not in ("usuario", "admin", "superadmin"):
+        raise HTTPException(status_code=400, detail="Rol inválido.")
+
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        cursor.execute("SELECT id, nombre, rol, tienda_id, activo FROM usuarios WHERE id = %s", (usuario_id,))
+        existente = cursor.fetchone()
+        if not existente:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado.")
+
+        if nuevo_rol == existente["rol"]:
+            return {"status": "success", "mensaje": "Ese usuario ya tiene ese rol."}
+
+        if nuevo_rol == "usuario" and not existente["tienda_id"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Este usuario no tiene tienda asignada — asignale una desde Usuarios antes de bajarlo a rol 'usuario'."
+            )
+
+        # No dejamos que el único superadmin activo se quite ese rol a sí
+        # mismo — se quedaría sin nadie con acceso al módulo de Roles.
+        if usuario_id == superadmin["id"] and existente["rol"] == "superadmin":
+            cursor.execute("SELECT COUNT(*) AS total FROM usuarios WHERE rol = 'superadmin' AND activo = TRUE")
+            if cursor.fetchone()["total"] <= 1:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No podés quitarte el rol de superadministrador siendo el único activo — asignaselo a otra persona primero."
+                )
+
+        campos = ["rol = %s"]
+        valores = [nuevo_rol]
+        # admin y superadmin operan a nivel de toda la empresa, no de una
+        # tienda puntual — si se promueve a alguien, se le suelta la tienda.
+        if nuevo_rol in ("admin", "superadmin"):
+            campos.append("tienda_id = NULL")
+        valores.append(usuario_id)
+        cursor.execute(f"UPDATE usuarios SET {', '.join(campos)} WHERE id = %s", valores)
+
+        # Fuerza a re-loguearse: así el cambio de permisos se refleja de
+        # inmediato en vez de quedar con el rol viejo hasta que la sesión expire.
+        cursor.execute("DELETE FROM sesiones WHERE usuario_id = %s", (usuario_id,))
+
+        _registrar_auditoria(cursor, superadmin, "cambiar_rol", f"{existente['nombre']}: {existente['rol']} → {nuevo_rol}")
+        conexion.commit()
+        return {"status": "success", "mensaje": "Rol actualizado."}
     except HTTPException:
         raise
     except Exception as e:
@@ -569,7 +817,7 @@ def obtener_ventas(fecha: str = None, usuario=Depends(obtener_usuario_actual)):
                     venta["estado_comprobante"] = "Pendiente"
 
             # ─── Alcance por rol: un usuario normal solo ve SU tienda ───
-            if usuario["rol"] != "admin":
+            if usuario["rol"] not in ("admin", "superadmin"):
                 if not usuario["tienda_id"]:
                     lista_ventas = []
                 else:
@@ -639,12 +887,12 @@ async def subir_comprobante_venta(
     comprobante: UploadFile = File(...),
     usuario=Depends(obtener_usuario_actual)
 ):
-    if usuario["rol"] != "admin" and _normalizar_tienda(tienda) != _normalizar_tienda(usuario["tienda_nombre"]):
+    if usuario["rol"] not in ("admin", "superadmin") and _normalizar_tienda(tienda) != _normalizar_tienda(usuario["tienda_nombre"]):
         raise HTTPException(status_code=403, detail="No puedes subir comprobantes de otra tienda.")
 
     # Si esta orden ya quedó congelada (su tienda+fecha ya "envió" el reporte
     # diario), un usuario normal ya no puede seguir editándola. El admin sí.
-    if usuario["rol"] != "admin":
+    if usuario["rol"] not in ("admin", "superadmin"):
         conexion_chk = obtener_conexion()
         cursor_chk = conexion_chk.cursor()
         try:
@@ -719,11 +967,11 @@ async def subir_comprobante_venta(
 # anulada, etc.) antes de congelar el día.
 @app.get("/api/ventas/resumen-cuadre")
 def obtener_resumen_cuadre_vivo(fecha: str, tienda: str = None, usuario=Depends(obtener_usuario_actual)):
-    tienda_objetivo = usuario["tienda_nombre"] if usuario["rol"] != "admin" else tienda
+    tienda_objetivo = usuario["tienda_nombre"] if usuario["rol"] not in ("admin", "superadmin") else tienda
     if not tienda_objetivo:
         raise HTTPException(
             status_code=400,
-            detail="Tu usuario no tiene una tienda asignada." if usuario["rol"] != "admin" else "Debes indicar una tienda."
+            detail="Tu usuario no tiene una tienda asignada." if usuario["rol"] not in ("admin", "superadmin") else "Debes indicar una tienda."
         )
 
     try:
@@ -837,7 +1085,7 @@ def consolidar_ventas(
 ):
     # Un usuario normal solo puede enviar el reporte diario de SU PROPIA tienda,
     # sin importar qué mande el cliente (se ignora/sobreescribe).
-    if usuario["rol"] != "admin":
+    if usuario["rol"] not in ("admin", "superadmin"):
         if not usuario["tienda_nombre"]:
             raise HTTPException(status_code=403, detail="Tu usuario no tiene una tienda asignada.")
         tienda_nombre = usuario["tienda_nombre"]
@@ -948,7 +1196,7 @@ def consolidar_ventas(
 # Cuadre de Caja (antes quedaba en blanco para llenar a mano en el papel).
 @app.get("/api/apertura")
 def obtener_apertura(fecha: str, tienda: str = None, usuario=Depends(obtener_usuario_actual)):
-    tienda_objetivo = usuario["tienda_nombre"] if usuario["rol"] != "admin" else tienda
+    tienda_objetivo = usuario["tienda_nombre"] if usuario["rol"] not in ("admin", "superadmin") else tienda
     if not tienda_objetivo:
         return {"monto": None, "registrado_por": None, "solo_lectura": False}
 
@@ -967,7 +1215,7 @@ def obtener_apertura(fecha: str, tienda: str = None, usuario=Depends(obtener_usu
         # queda congelado para un usuario normal (mismo criterio que Monitoreo
         # de Órdenes) — la base de apertura tampoco se puede seguir editando.
         solo_lectura = False
-        if usuario["rol"] != "admin":
+        if usuario["rol"] not in ("admin", "superadmin"):
             cursor.execute("""
                 SELECT 1 FROM consolidado_ventas_diarias c
                 JOIN tiendas t ON t.id = c.tienda_id
@@ -999,7 +1247,7 @@ async def guardar_apertura(request: Request, usuario=Depends(obtener_usuario_act
         raise HTTPException(status_code=400, detail="Se requiere fecha.")
 
     # Un usuario normal solo puede registrar la apertura de SU PROPIA tienda.
-    if usuario["rol"] != "admin":
+    if usuario["rol"] not in ("admin", "superadmin"):
         if not usuario["tienda_nombre"]:
             raise HTTPException(status_code=403, detail="Tu usuario no tiene una tienda asignada.")
         tienda = usuario["tienda_nombre"]
@@ -1018,7 +1266,7 @@ async def guardar_apertura(request: Request, usuario=Depends(obtener_usuario_act
 
         # Congelado para usuarios normales (no para admin), mismo criterio que
         # el resto de Monitoreo de Órdenes una vez enviado el reporte diario.
-        if usuario["rol"] != "admin":
+        if usuario["rol"] not in ("admin", "superadmin"):
             cursor.execute("""
                 SELECT 1 FROM consolidado_ventas_diarias WHERE fecha = %s AND tienda_id = %s
             """, (fecha, tienda_id))
@@ -1049,7 +1297,7 @@ async def guardar_apertura(request: Request, usuario=Depends(obtener_usuario_act
 # ─── ¿Ya se envió el reporte diario de esta tienda+fecha? (cualquier usuario autenticado) ───
 @app.get("/api/reporte-diario/estado")
 def estado_reporte_diario(fecha: str, tienda: str = None, usuario=Depends(obtener_usuario_actual)):
-    if usuario["rol"] != "admin":
+    if usuario["rol"] not in ("admin", "superadmin"):
         tienda_id = usuario["tienda_id"]
     else:
         tienda_id = None
@@ -1086,7 +1334,7 @@ def estado_reporte_diario(fecha: str, tienda: str = None, usuario=Depends(obtene
 # un usuario normal lo consulte para saber si su formulario debe bloquearse). ───
 @app.get("/api/cierres/estado")
 def estado_cierre(fecha: str, tienda: str = None, usuario=Depends(obtener_usuario_actual)):
-    tienda_objetivo = usuario["tienda_nombre"] if usuario["rol"] != "admin" else tienda
+    tienda_objetivo = usuario["tienda_nombre"] if usuario["rol"] not in ("admin", "superadmin") else tienda
     if not tienda_objetivo:
         return {"ya_registrado": False}
 
@@ -1121,7 +1369,7 @@ async def registrar_sesion_cierre(
         raise HTTPException(status_code=400, detail="Debes cargar al menos uno de los documentos de cierre.")
 
     # Un usuario normal solo puede cerrar caja de SU PROPIA tienda.
-    if usuario_autenticado["rol"] != "admin":
+    if usuario_autenticado["rol"] not in ("admin", "superadmin"):
         if not usuario_autenticado["tienda_nombre"]:
             raise HTTPException(status_code=403, detail="Tu usuario no tiene una tienda asignada.")
         tienda_nombre = usuario_autenticado["tienda_nombre"]
@@ -1420,6 +1668,7 @@ async def validar_cierre(request: Request, admin=Depends(requerir_admin)):
                     WHERE id = (SELECT max(id) FROM cierres_diarios)
                 """, (nuevo_estado,))
 
+        _registrar_auditoria(cursor, admin, "aprobar_cierre" if aprobado else "rechazar_cierre", f"cierre_id={cierre_id or 'último pendiente'}")
         conexion.commit()
         return {"status": "success", "mensaje": "Estado de cierre actualizado con éxito en PostgreSQL."}
     except HTTPException:
@@ -1491,6 +1740,7 @@ async def establecer_meta_mensual(request: Request, admin=Depends(requerir_admin
             VALUES (%s, %s, %s, %s)
             ON CONFLICT (tienda_id, anio, mes) DO UPDATE SET monto_meta = EXCLUDED.monto_meta
         """, (tienda_id, anio, mes, monto))
+        _registrar_auditoria(cursor, admin, "editar_meta_mensual", f"{tienda_nombre} {mes}/{anio}: ${monto:.2f}")
         conexion.commit()
         return {"status": "success"}
     except HTTPException:
@@ -1502,15 +1752,118 @@ async def establecer_meta_mensual(request: Request, admin=Depends(requerir_admin
         conexion.close()
 
 
+# ─── REGISTRO DE AUDITORÍA — quién hizo qué acción sensible y cuándo. ───
+@app.get("/api/auditoria")
+def obtener_auditoria(limite: int = 200, admin=Depends(requerir_superadmin)):
+    from config.db_manager import RealDictCursor
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        cursor.execute("""
+            SELECT id, usuario_nombre, accion, detalle, creado_en
+            FROM auditoria ORDER BY creado_en DESC LIMIT %s
+        """, (min(max(limite, 1), 1000),))
+        filas = cursor.fetchall()
+        return [
+            {
+                "id": f["id"],
+                "usuario": f["usuario_nombre"] or "Sistema",
+                "accion": f["accion"],
+                "detalle": f["detalle"],
+                "creado_en": f["creado_en"].strftime("%Y-%m-%d %H:%M:%S") if f["creado_en"] else None,
+            }
+            for f in filas
+        ]
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+# ─── BÚSQUEDA GLOBAL — un cuadro de texto que busca en varios módulos a la
+# vez (órdenes registradas, usuarios, cierres por tienda/fecha), en vez de
+# tener que saber de antemano en qué pantalla está lo que se busca. ───
+@app.get("/api/buscar")
+def buscar_global(q: str, usuario=Depends(obtener_usuario_actual)):
+    q = (q or "").strip()
+    if len(q) < 2:
+        return {"resultados": []}
+
+    from config.db_manager import RealDictCursor
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    resultados = []
+    try:
+        patron = f"%{q}%"
+
+        # Órdenes registradas (por número de orden) — scope por tienda si no es admin.
+        if usuario["rol"] in ("admin", "superadmin"):
+            cursor.execute("""
+                SELECT v.orden_id, v.fecha, v.total_venta, t.nombre AS tienda
+                FROM ventas_registradas v JOIN tiendas t ON t.id = v.tienda_id
+                WHERE v.orden_id ILIKE %s ORDER BY v.fecha DESC LIMIT 8
+            """, (patron,))
+        else:
+            cursor.execute("""
+                SELECT v.orden_id, v.fecha, v.total_venta, t.nombre AS tienda
+                FROM ventas_registradas v JOIN tiendas t ON t.id = v.tienda_id
+                WHERE v.orden_id ILIKE %s AND v.tienda_id = %s ORDER BY v.fecha DESC LIMIT 8
+            """, (patron, usuario["tienda_id"]))
+        for r in cursor.fetchall():
+            fecha_str = r["fecha"].strftime("%Y-%m-%d") if r["fecha"] else None
+            resultados.append({
+                "tipo": "orden", "titulo": r["orden_id"],
+                "subtitulo": f"{r['tienda']} — {fecha_str} — ${r['total_venta']:.2f}",
+                "pantalla": "ventas", "fecha": fecha_str, "tienda": r["tienda"],
+            })
+
+        # Cierres (por tienda) — todos ven, pero un usuario normal solo los suyos.
+        if usuario["rol"] in ("admin", "superadmin"):
+            cursor.execute("""
+                SELECT c.id, c.fecha, c.completado, t.nombre AS tienda
+                FROM cierres_diarios c JOIN tiendas t ON t.id = c.tienda_id
+                WHERE t.nombre ILIKE %s ORDER BY c.fecha DESC LIMIT 8
+            """, (patron,))
+            for r in cursor.fetchall():
+                estado = {0: "Pendiente", 1: "Aprobado", 2: "Rechazado"}.get(r["completado"], "Pendiente")
+                fecha_str = r["fecha"].strftime("%Y-%m-%d") if r["fecha"] else None
+                resultados.append({
+                    "tipo": "cierre", "titulo": f"Cierre — {r['tienda']}",
+                    "subtitulo": f"{fecha_str} — {estado}",
+                    "pantalla": "historial", "cierre_id": r["id"],
+                })
+
+        # Usuarios — solo admin.
+        if usuario["rol"] in ("admin", "superadmin"):
+            cursor.execute("""
+                SELECT nombre, email, rol FROM usuarios
+                WHERE nombre ILIKE %s OR email ILIKE %s LIMIT 8
+            """, (patron, patron))
+            for r in cursor.fetchall():
+                resultados.append({
+                    "tipo": "usuario", "titulo": r["nombre"],
+                    "subtitulo": f"{r['email']} — {r['rol']}",
+                    "pantalla": "usuarios",
+                })
+
+        return {"resultados": resultados}
+    finally:
+        cursor.close()
+        conexion.close()
+
+
 @app.get("/api/kpis")
 def obtener_kpis(anio: int = None, mes: int = None, tienda: str = None, usuario=Depends(obtener_usuario_actual)):
-    # Un usuario normal solo ve el KPI de SU tienda; el admin elige la tienda
-    # (la misma que tenga seleccionada en el header, igual que en Monitoreo).
-    tienda_objetivo = usuario["tienda_nombre"] if usuario["rol"] != "admin" else tienda
+    # Módulo reservado al superadministrador (y al usuario de tienda, que solo
+    # ve la suya) — el rol "admin" no tiene acceso a KPIs.
+    if usuario["rol"] == "admin":
+        raise HTTPException(status_code=403, detail="Este módulo está reservado al superadministrador.")
+    # Un usuario normal solo ve el KPI de SU tienda; el superadmin elige la
+    # tienda (la misma que tenga seleccionada en el header, igual que en Monitoreo).
+    tienda_objetivo = usuario["tienda_nombre"] if usuario["rol"] != "superadmin" else tienda
     if not tienda_objetivo:
         raise HTTPException(
             status_code=400,
-            detail="Tu usuario no tiene una tienda asignada." if usuario["rol"] != "admin" else "Debes indicar una tienda."
+            detail="Tu usuario no tiene una tienda asignada." if usuario["rol"] != "superadmin" else "Debes indicar una tienda."
         )
 
     try:
@@ -1568,6 +1921,27 @@ def obtener_kpis(anio: int = None, mes: int = None, tienda: str = None, usuario=
                 ODOO_DB, uid, ODOO_PASSWORD, 'pos.order', 'search_read',
                 [filtros], {'fields': ['date_order', 'amount_total', 'cashier']}
             )
+
+        # Comparativa año contra año: mismo mes, un año antes. Es un rango de
+        # fechas totalmente distinto al de arriba, así que va en su propia
+        # consulta — reutiliza los mismos config_ids ya resueltos.
+        ventas_mismo_mes_anio_anterior = 0.0
+        if config_ids:
+            inicio_anio_ant = datetime(anio - 1, mes, 1, tzinfo=tz_odoo)
+            anio_sig_ant, mes_sig_ant = (anio, 1) if mes == 12 else (anio - 1, mes + 1)
+            fin_anio_ant = datetime(anio_sig_ant, mes_sig_ant, 1, tzinfo=tz_odoo)
+            filtros_anio_ant = [
+                ['config_id', 'in', config_ids],
+                ['company_id', '=', TARGET_COMPANY_ID],
+                ['date_order', '>=', inicio_anio_ant.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")],
+                ['date_order', '<', fin_anio_ant.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")],
+                ['state', 'not in', ['draft', 'cancel']],
+            ]
+            ordenes_anio_ant = models.execute_kw(
+                ODOO_DB, uid, ODOO_PASSWORD, 'pos.order', 'search_read',
+                [filtros_anio_ant], {'fields': ['amount_total']}
+            )
+            ventas_mismo_mes_anio_anterior = sum(o.get('amount_total', 0.0) or 0.0 for o in ordenes_anio_ant)
     except HTTPException:
         raise
     except Exception as e:
@@ -1643,6 +2017,10 @@ def obtener_kpis(anio: int = None, mes: int = None, tienda: str = None, usuario=
         key=lambda v: v["monto"], reverse=True
     )
 
+    variacion_anual_pct = None
+    if ventas_mismo_mes_anio_anterior > 0:
+        variacion_anual_pct = round((ventas_mes_actual - ventas_mismo_mes_anio_anterior) / ventas_mismo_mes_anio_anterior * 100, 1)
+
     return {
         "tienda": tienda_objetivo,
         "anio": anio,
@@ -1652,8 +2030,238 @@ def obtener_kpis(anio: int = None, mes: int = None, tienda: str = None, usuario=
         "meta_mensual": meta_mensual,
         "progreso_pct": progreso_pct,
         "serie_diaria": serie_diaria,
-        "vendedoras": vendedoras
+        "vendedoras": vendedoras,
+        "ventas_mismo_mes_anio_anterior": round(ventas_mismo_mes_anio_anterior, 2),
+        "variacion_anual_pct": variacion_anual_pct
     }
+
+
+MESES_ES = {
+    1: "enero", 2: "febrero", 3: "marzo", 4: "abril", 5: "mayo", 6: "junio",
+    7: "julio", 8: "agosto", 9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre"
+}
+
+# ─── REPORTE EJECUTIVO MENSUAL (PDF) — resumen de todas las tiendas para un
+# mes: venta total y comparativa vs. mes anterior y vs. mismo mes del año
+# anterior, desglose de venta/meta por tienda, y estado de cierres (aprobados/
+# pendientes/rechazados). Pensado para imprimir o compartir con gerencia sin
+# tener que entrar al dashboard — solo admin.
+@app.get("/api/reporte-ejecutivo/pdf")
+def reporte_ejecutivo_pdf(anio: int = None, mes: int = None, admin=Depends(requerir_superadmin)):
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib import colors
+    from reportlab.lib.units import cm
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER
+    from io import BytesIO
+
+    try:
+        common = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/common')
+        uid = common.authenticate(ODOO_DB, ODOO_USER, ODOO_PASSWORD, {})
+        if not uid:
+            raise HTTPException(status_code=401, detail="Fallo de autenticación con Odoo")
+        models = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/object')
+
+        try:
+            tz_odoo = ZoneInfo(_obtener_tz_odoo(models, uid))
+        except Exception:
+            tz_odoo = timezone.utc
+
+        ahora_local = datetime.now(tz_odoo)
+        anio = anio or ahora_local.year
+        mes = mes or ahora_local.month
+
+        def rango_utc_del_mes(a, m):
+            inicio = datetime(a, m, 1, tzinfo=tz_odoo)
+            a_sig, m_sig = (a + 1, 1) if m == 12 else (a, m + 1)
+            fin = datetime(a_sig, m_sig, 1, tzinfo=tz_odoo)
+            return inicio.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"), fin.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+        inicio_actual, fin_actual = rango_utc_del_mes(anio, mes)
+        anio_ant_mes, mes_ant = (anio - 1, 12) if mes == 1 else (anio, mes - 1)
+        inicio_mes_ant, fin_mes_ant = rango_utc_del_mes(anio_ant_mes, mes_ant)
+        inicio_anio_ant, fin_anio_ant = rango_utc_del_mes(anio - 1, mes)
+
+        def ventas_por_tienda(inicio, fin):
+            filtros = [
+                ['company_id', '=', TARGET_COMPANY_ID],
+                ['date_order', '>=', inicio],
+                ['date_order', '<', fin],
+                ['state', 'not in', ['draft', 'cancel']],
+            ]
+            ordenes = models.execute_kw(
+                ODOO_DB, uid, ODOO_PASSWORD, 'pos.order', 'search_read',
+                [filtros], {'fields': ['config_id', 'amount_total']}
+            )
+            por_tienda = {}
+            for o in ordenes:
+                nombre = o['config_id'][1] if o.get('config_id') else "Sin tienda"
+                por_tienda[nombre] = por_tienda.get(nombre, 0.0) + (o.get('amount_total', 0.0) or 0.0)
+            return por_tienda
+
+        ventas_mes_actual = ventas_por_tienda(inicio_actual, fin_actual)
+        ventas_mes_anterior = ventas_por_tienda(inicio_mes_ant, fin_mes_ant)
+        ventas_mismo_mes_anio_anterior = ventas_por_tienda(inicio_anio_ant, fin_anio_ant)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error en Odoo POS: {str(e)}")
+
+    total_actual = sum(ventas_mes_actual.values())
+    total_mes_anterior = sum(ventas_mes_anterior.values())
+    total_anio_anterior = sum(ventas_mismo_mes_anio_anterior.values())
+    var_mensual_pct = round((total_actual - total_mes_anterior) / total_mes_anterior * 100, 1) if total_mes_anterior > 0 else None
+    var_anual_pct = round((total_actual - total_anio_anterior) / total_anio_anterior * 100, 1) if total_anio_anterior > 0 else None
+
+    from config.db_manager import RealDictCursor
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        filas_tiendas = []
+        total_aprobados = total_rechazados = total_pendientes = 0
+        for nombre_tienda in TIENDAS_CONOCIDAS:
+            venta = ventas_mes_actual.get(nombre_tienda, 0.0)
+            cursor.execute("SELECT id FROM tiendas WHERE nombre = %s", (nombre_tienda,))
+            fila_t = cursor.fetchone()
+            tienda_id = fila_t["id"] if fila_t else None
+
+            meta = 0.0
+            if tienda_id:
+                cursor.execute(
+                    "SELECT monto_meta FROM metas_mensuales WHERE tienda_id = %s AND anio = %s AND mes = %s",
+                    (tienda_id, anio, mes)
+                )
+                fila_meta = cursor.fetchone()
+                meta = fila_meta["monto_meta"] if fila_meta else 0.0
+
+            estados_cierre = []
+            if tienda_id:
+                cursor.execute("""
+                    SELECT completado FROM cierres_diarios
+                    WHERE tienda_id = %s AND EXTRACT(YEAR FROM fecha) = %s AND EXTRACT(MONTH FROM fecha) = %s
+                """, (tienda_id, anio, mes))
+                estados_cierre = [f["completado"] for f in cursor.fetchall()]
+            aprobados = sum(1 for e in estados_cierre if e == 1)
+            rechazados = sum(1 for e in estados_cierre if e == 2)
+            pendientes = sum(1 for e in estados_cierre if e in (0, None))
+            total_aprobados += aprobados
+            total_rechazados += rechazados
+            total_pendientes += pendientes
+
+            filas_tiendas.append({
+                "tienda": nombre_tienda, "venta": venta, "meta": meta,
+                "pct_meta": round(venta / meta * 100, 1) if meta > 0 else None,
+                "aprobados": aprobados, "rechazados": rechazados, "pendientes": pendientes,
+            })
+
+        _registrar_auditoria(cursor, admin, "generar_reporte_ejecutivo", f"{MESES_ES[mes]} {anio}")
+        conexion.commit()
+    finally:
+        cursor.close()
+        conexion.close()
+
+    filas_tiendas.sort(key=lambda f: f["venta"], reverse=True)
+
+    # ─── Armado del PDF ───
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=letter,
+        topMargin=1.8 * cm, bottomMargin=1.8 * cm, leftMargin=1.8 * cm, rightMargin=1.8 * cm
+    )
+    estilos = getSampleStyleSheet()
+    estilo_titulo = ParagraphStyle('TituloSB', parent=estilos['Title'], textColor=colors.HexColor('#1e293b'), fontSize=20, spaceAfter=2)
+    estilo_subtitulo = ParagraphStyle('SubtituloSB', parent=estilos['Normal'], textColor=colors.HexColor('#64748b'), fontSize=11, spaceAfter=18)
+    estilo_seccion = ParagraphStyle('SeccionSB', parent=estilos['Heading2'], textColor=colors.HexColor('#1e293b'), fontSize=13, spaceBefore=14, spaceAfter=8)
+    estilo_pie = ParagraphStyle('PieSB', parent=estilos['Normal'], textColor=colors.HexColor('#94a3b8'), fontSize=8, alignment=TA_CENTER)
+
+    elementos = [
+        Paragraph("SociaBoss — Reporte Ejecutivo Mensual", estilo_titulo),
+        Paragraph(f"{MESES_ES[mes].capitalize()} {anio} · Generado el {datetime.now(tz_odoo).strftime('%d/%m/%Y %H:%M')} por {admin['nombre']}", estilo_subtitulo),
+    ]
+
+    def flecha_pct(pct):
+        if pct is None:
+            return "—"
+        return f"{'▲' if pct >= 0 else '▼'} {abs(pct)}%"
+
+    elementos.append(Paragraph("Resumen General", estilo_seccion))
+    tabla_resumen = Table([
+        ["Venta total del mes", "Vs. mes anterior", "Vs. mismo mes año anterior"],
+        [f"${total_actual:,.2f}", flecha_pct(var_mensual_pct), flecha_pct(var_anual_pct)],
+    ], colWidths=[6 * cm, 5.2 * cm, 6.2 * cm])
+    tabla_resumen.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1e293b')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('FONTSIZE', (0, 0), (-1, 0), 9),
+        ('FONTSIZE', (0, 1), (-1, 1), 15),
+        ('FONTNAME', (0, 1), (-1, 1), 'Helvetica-Bold'),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, -1), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ('BACKGROUND', (0, 1), (-1, 1), colors.HexColor('#f1f5f9')),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
+    ]))
+    elementos.append(tabla_resumen)
+
+    elementos.append(Paragraph("Cierres del mes (todas las tiendas)", estilo_seccion))
+    tabla_cierres = Table([
+        ["Aprobados", "Pendientes/sin revisar", "Rechazados"],
+        [str(total_aprobados), str(total_pendientes), str(total_rechazados)],
+    ], colWidths=[5.7 * cm, 6 * cm, 5.7 * cm])
+    tabla_cierres.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#e2e8f0')),
+        ('FONTSIZE', (0, 0), (-1, 0), 9),
+        ('FONTSIZE', (0, 1), (-1, 1), 14),
+        ('FONTNAME', (0, 1), (-1, 1), 'Helvetica-Bold'),
+        ('TEXTCOLOR', (0, 1), (0, 1), colors.HexColor('#059669')),
+        ('TEXTCOLOR', (1, 1), (1, 1), colors.HexColor('#d97706')),
+        ('TEXTCOLOR', (2, 1), (2, 1), colors.HexColor('#dc2626')),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('TOPPADDING', (0, 0), (-1, -1), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
+    ]))
+    elementos.append(tabla_cierres)
+
+    elementos.append(Paragraph("Desglose por Tienda", estilo_seccion))
+    filas_tabla_tiendas = [["Tienda", "Venta", "Meta", "% Meta", "Aprob.", "Pend.", "Rech."]]
+    for f in filas_tiendas:
+        filas_tabla_tiendas.append([
+            f["tienda"], f"${f['venta']:,.2f}",
+            f"${f['meta']:,.2f}" if f['meta'] > 0 else "—",
+            f"{f['pct_meta']}%" if f['pct_meta'] is not None else "—",
+            str(f["aprobados"]), str(f["pendientes"]), str(f["rechazados"]),
+        ])
+    tabla_tiendas = Table(filas_tabla_tiendas, colWidths=[5 * cm, 2.7 * cm, 2.7 * cm, 1.8 * cm, 1.6 * cm, 1.6 * cm, 1.6 * cm], repeatRows=1)
+    estilo_tabla_tiendas = [
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1e293b')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('FONTSIZE', (0, 0), (-1, -1), 8.5),
+        ('ALIGN', (1, 0), (-1, -1), 'CENTER'),
+        ('TOPPADDING', (0, 0), (-1, -1), 5),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cbd5e1')),
+    ]
+    for i in range(1, len(filas_tabla_tiendas)):
+        if i % 2 == 0:
+            estilo_tabla_tiendas.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor('#f8fafc')))
+    tabla_tiendas.setStyle(TableStyle(estilo_tabla_tiendas))
+    elementos.append(tabla_tiendas)
+
+    elementos.append(Spacer(1, 1.2 * cm))
+    elementos.append(Paragraph("Generado automáticamente por SociaBoss — datos en vivo desde Odoo y el registro interno de cierres.", estilo_pie))
+
+    doc.build(elementos)
+    pdf_bytes = buffer.getvalue()
+    buffer.close()
+
+    nombre_archivo = f"reporte-ejecutivo-{MESES_ES[mes]}-{anio}.pdf"
+    return Response(
+        content=pdf_bytes, media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{nombre_archivo}"'}
+    )
 
 
 # ─── MÓDULO 4: COMISIONES — todas las tiendas, en vivo desde Odoo, para un
@@ -1669,7 +2277,7 @@ PORCENTAJE_COMISION = 0.02
 RETENCION_TARJETA_PCT = 0.0518
 
 @app.get("/api/comisiones")
-def obtener_comisiones(desde: str, hasta: str, admin=Depends(requerir_admin)):
+def obtener_comisiones(desde: str, hasta: str, admin=Depends(requerir_superadmin)):
     try:
         common = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/common')
         uid = common.authenticate(ODOO_DB, ODOO_USER, ODOO_PASSWORD, {})
@@ -1769,6 +2377,126 @@ def obtener_comisiones(desde: str, hasta: str, admin=Depends(requerir_admin)):
         raise HTTPException(status_code=500, detail=f"Error en Odoo POS: {str(e)}")
 
 
+# ─── MÓDULO 5: DASHBOARD DE INICIO — venta de hoy por tienda (en vivo desde
+# Odoo) + estado del reporte diario/cierre de cada una (desde Postgres), para
+# tener un vistazo general apenas se entra a la app. El admin ve todas las
+# tiendas; un usuario normal solo la suya. ───
+@app.get("/api/dashboard")
+def obtener_dashboard(usuario=Depends(obtener_usuario_actual)):
+    tiendas_a_mostrar = TIENDAS_CONOCIDAS if usuario["rol"] in ("admin", "superadmin") else (
+        [usuario["tienda_nombre"]] if usuario["tienda_nombre"] else []
+    )
+
+    ventas_por_tienda = {}
+    try:
+        common = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/common')
+        uid = common.authenticate(ODOO_DB, ODOO_USER, ODOO_PASSWORD, {})
+        if uid:
+            models = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/object')
+            try:
+                tz_odoo = ZoneInfo(_obtener_tz_odoo(models, uid))
+            except Exception:
+                tz_odoo = timezone.utc
+
+            ahora_local = datetime.now(tz_odoo)
+            hoy_str = ahora_local.strftime("%Y-%m-%d")
+            inicio_local = datetime.strptime(hoy_str, "%Y-%m-%d").replace(tzinfo=tz_odoo)
+            fin_local = inicio_local + timedelta(days=1)
+            inicio_utc = inicio_local.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            fin_utc = fin_local.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+            filtros = [
+                ['company_id', '=', TARGET_COMPANY_ID],
+                ['date_order', '>=', inicio_utc],
+                ['date_order', '<', fin_utc],
+                ['state', 'not in', ['draft', 'cancel']],
+            ]
+            ordenes = models.execute_kw(
+                ODOO_DB, uid, ODOO_PASSWORD, 'pos.order', 'search_read',
+                [filtros], {'fields': ['config_id', 'amount_total']}
+            )
+            for o in ordenes:
+                nombre = o['config_id'][1] if o.get('config_id') else "SociaBoss Local"
+                d = ventas_por_tienda.setdefault(nombre, {"venta": 0.0, "cantidad": 0})
+                d["venta"] += o.get('amount_total', 0.0) or 0.0
+                d["cantidad"] += 1
+        else:
+            hoy_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    except Exception:
+        hoy_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    from config.db_manager import RealDictCursor
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        resultado = []
+        venta_total_hoy = 0.0
+        tiendas_reporte_pendiente = 0
+        tiendas_con_diferencia = 0
+
+        for nombre_tienda in tiendas_a_mostrar:
+            v = ventas_por_tienda.get(nombre_tienda, {"venta": 0.0, "cantidad": 0})
+            venta_total_hoy += v["venta"]
+
+            cursor.execute("SELECT id FROM tiendas WHERE nombre = %s", (nombre_tienda,))
+            fila_t = cursor.fetchone()
+            tienda_id = fila_t["id"] if fila_t else None
+
+            reporte_enviado = False
+            cierre_estado = None
+            hay_diferencia = False
+            if tienda_id:
+                cursor.execute("""
+                    SELECT ajuste_metodos_pago, conteo_fisico FROM consolidado_ventas_diarias
+                    WHERE fecha = %s AND tienda_id = %s
+                """, (hoy_str, tienda_id))
+                fila_consol = cursor.fetchone()
+                reporte_enviado = fila_consol is not None
+                if fila_consol and fila_consol.get("ajuste_metodos_pago") and fila_consol.get("conteo_fisico"):
+                    try:
+                        ajustes = {a["metodo"]: float(a.get("monto", 0) or 0) for a in json.loads(fila_consol["ajuste_metodos_pago"])}
+                        conteos = {c["metodo"]: float(c.get("monto", 0) or 0) for c in json.loads(fila_consol["conteo_fisico"])}
+                        for metodo, monto_contado in conteos.items():
+                            if abs(monto_contado - ajustes.get(metodo, 0.0)) > 5:
+                                hay_diferencia = True
+                                break
+                    except Exception:
+                        pass
+
+                cursor.execute("""
+                    SELECT completado FROM cierres_diarios WHERE fecha = %s AND tienda_id = %s
+                """, (hoy_str, tienda_id))
+                fila_cierre = cursor.fetchone()
+                cierre_estado = fila_cierre["completado"] if fila_cierre else None
+
+            if reporte_enviado and cierre_estado in (None, 0):
+                tiendas_reporte_pendiente += 1
+            if hay_diferencia:
+                tiendas_con_diferencia += 1
+
+            resultado.append({
+                "tienda": nombre_tienda,
+                "venta_hoy": round(v["venta"], 2),
+                "cantidad_ordenes_hoy": v["cantidad"],
+                "reporte_enviado_hoy": reporte_enviado,
+                "cierre_estado": cierre_estado,
+                "alerta_diferencia": hay_diferencia,
+            })
+
+        return {
+            "fecha": hoy_str,
+            "tiendas": resultado,
+            "resumen": {
+                "venta_total_hoy": round(venta_total_hoy, 2),
+                "tiendas_con_reporte_pendiente": tiendas_reporte_pendiente,
+                "tiendas_con_diferencia": tiendas_con_diferencia,
+            }
+        }
+    finally:
+        cursor.close()
+        conexion.close()
+
+
 # ─── REPORTE DE CUADRE DE CAJA: suma de ventas por método de pago ───
 # Los MONTOS salen del registro interno (ventas_registradas + venta_pagos),
 # NO en vivo de Odoo: para cuando se llega a Cierre de Caja, esa tienda+fecha
@@ -1778,11 +2506,11 @@ def obtener_comisiones(desde: str, hasta: str, admin=Depends(requerir_admin)):
 # hayan tenido movimiento ese día (en $0), en vez de solo los que sí se usaron.
 @app.get("/api/reporte-cuadre")
 def obtener_reporte_cuadre(fecha: str, tienda: str = None, usuario=Depends(obtener_usuario_actual)):
-    tienda_objetivo = usuario["tienda_nombre"] if usuario["rol"] != "admin" else tienda
+    tienda_objetivo = usuario["tienda_nombre"] if usuario["rol"] not in ("admin", "superadmin") else tienda
     if not tienda_objetivo:
         raise HTTPException(
             status_code=400,
-            detail="Tu usuario no tiene una tienda asignada." if usuario["rol"] != "admin" else "Debes indicar una tienda."
+            detail="Tu usuario no tiene una tienda asignada." if usuario["rol"] not in ("admin", "superadmin") else "Debes indicar una tienda."
         )
 
     nombres_metodos_odoo = []
@@ -1921,6 +2649,554 @@ def obtener_reporte_cuadre(fecha: str, tienda: str = None, usuario=Depends(obten
             "por_metodo": por_metodo,
             "base_apertura": base_apertura
         }
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+# ─── MÓDULO CHAT DE CONSULTAS — Claude responde preguntas en lenguaje natural
+# sobre los datos reales de la empresa (ventas, ranking de tiendas, productos,
+# cierres), llamando a estas herramientas — nunca inventa cifras. Opcional:
+# sin ANTHROPIC_API_KEY configurada, la app funciona igual y el chat solo
+# avisa que falta configurarla (mismo criterio que SMTP para "olvidé
+# contraseña"). Solo admin/superadmin. ───
+def _chat_conectar_odoo():
+    common = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/common')
+    uid = common.authenticate(ODOO_DB, ODOO_USER, ODOO_PASSWORD, {})
+    if not uid:
+        raise RuntimeError("No se pudo autenticar con Odoo.")
+    models = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/object')
+    try:
+        tz_odoo = ZoneInfo(_obtener_tz_odoo(models, uid))
+    except Exception:
+        tz_odoo = timezone.utc
+    return uid, models, tz_odoo
+
+
+def _chat_rango_utc(desde, hasta, tz_odoo):
+    inicio = datetime.strptime(desde, "%Y-%m-%d").replace(tzinfo=tz_odoo)
+    fin = datetime.strptime(hasta, "%Y-%m-%d").replace(tzinfo=tz_odoo) + timedelta(days=1)
+    return inicio.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"), fin.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _chat_ventas_totales(desde, hasta, tienda=None):
+    try:
+        uid, models, tz_odoo = _chat_conectar_odoo()
+        inicio_utc, fin_utc = _chat_rango_utc(desde, hasta, tz_odoo)
+        filtros = [
+            ['company_id', '=', TARGET_COMPANY_ID],
+            ['date_order', '>=', inicio_utc], ['date_order', '<', fin_utc],
+            ['state', 'not in', ['draft', 'cancel']],
+        ]
+        if tienda:
+            config_ids = models.execute_kw(ODOO_DB, uid, ODOO_PASSWORD, 'pos.config', 'search', [[['name', 'ilike', tienda]]])
+            if not config_ids:
+                return {"error": f"No se encontró ninguna tienda que coincida con '{tienda}'. Tiendas válidas: {', '.join(TIENDAS_CONOCIDAS)}"}
+            filtros.append(['config_id', 'in', config_ids])
+        ordenes = models.execute_kw(ODOO_DB, uid, ODOO_PASSWORD, 'pos.order', 'search_read', [filtros], {'fields': ['amount_total']})
+        total = sum(o.get('amount_total', 0.0) or 0.0 for o in ordenes)
+        return {"tienda": tienda or "todas las tiendas", "desde": desde, "hasta": hasta, "total_ventas": round(total, 2), "cantidad_ordenes": len(ordenes)}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _chat_ranking_tiendas(desde, hasta):
+    try:
+        uid, models, tz_odoo = _chat_conectar_odoo()
+        inicio_utc, fin_utc = _chat_rango_utc(desde, hasta, tz_odoo)
+        filtros = [
+            ['company_id', '=', TARGET_COMPANY_ID],
+            ['date_order', '>=', inicio_utc], ['date_order', '<', fin_utc],
+            ['state', 'not in', ['draft', 'cancel']],
+        ]
+        ordenes = models.execute_kw(ODOO_DB, uid, ODOO_PASSWORD, 'pos.order', 'search_read', [filtros], {'fields': ['config_id', 'amount_total']})
+        por_tienda = {}
+        for o in ordenes:
+            nombre = o['config_id'][1] if o.get('config_id') else "Sin tienda"
+            d = por_tienda.setdefault(nombre, {"total": 0.0, "cantidad": 0})
+            d["total"] += o.get('amount_total', 0.0) or 0.0
+            d["cantidad"] += 1
+        ranking = sorted(
+            [{"tienda": k, "total_ventas": round(v["total"], 2), "cantidad_ordenes": v["cantidad"]} for k, v in por_tienda.items()],
+            key=lambda x: x["total_ventas"], reverse=True
+        )
+        return {"desde": desde, "hasta": hasta, "ranking": ranking}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _chat_ventas_producto(referencia_o_nombre, desde, hasta):
+    try:
+        uid, models, tz_odoo = _chat_conectar_odoo()
+        inicio_utc, fin_utc = _chat_rango_utc(desde, hasta, tz_odoo)
+        productos = models.execute_kw(
+            ODOO_DB, uid, ODOO_PASSWORD, 'product.product', 'search_read',
+            [['|', ['default_code', 'ilike', referencia_o_nombre], ['name', 'ilike', referencia_o_nombre]]],
+            {'fields': ['id', 'name', 'default_code'], 'limit': 15}
+        )
+        if not productos:
+            return {"error": f"No se encontró ningún producto que coincida con '{referencia_o_nombre}'."}
+        product_ids = [p['id'] for p in productos]
+        lineas = models.execute_kw(
+            ODOO_DB, uid, ODOO_PASSWORD, 'pos.order.line', 'search_read',
+            [[
+                ['product_id', 'in', product_ids],
+                ['order_id.date_order', '>=', inicio_utc], ['order_id.date_order', '<', fin_utc],
+                ['order_id.company_id', '=', TARGET_COMPANY_ID],
+                ['order_id.state', 'not in', ['draft', 'cancel']],
+            ]],
+            {'fields': ['product_id', 'qty', 'price_subtotal_incl']}
+        )
+        por_producto = {}
+        for l in lineas:
+            pid = l['product_id'][0]
+            d = por_producto.setdefault(pid, {"nombre": l['product_id'][1], "cantidad": 0.0, "monto": 0.0})
+            d["cantidad"] += l.get('qty', 0.0) or 0.0
+            d["monto"] += l.get('price_subtotal_incl', 0.0) or 0.0
+        ventas = [{"producto": v["nombre"], "cantidad_vendida": v["cantidad"], "monto_total": round(v["monto"], 2)} for v in por_producto.values()]
+        return {"desde": desde, "hasta": hasta, "productos_encontrados": len(productos), "ventas": ventas}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _chat_estado_cierres(desde, hasta, tienda=None):
+    from config.db_manager import RealDictCursor
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        condiciones = ["c.fecha >= %s", "c.fecha <= %s"]
+        parametros = [desde, hasta]
+        if tienda:
+            condiciones.append("t.nombre ILIKE %s")
+            parametros.append(f"%{tienda}%")
+        cursor.execute(f"""
+            SELECT c.completado, COUNT(*) AS n
+            FROM cierres_diarios c JOIN tiendas t ON t.id = c.tienda_id
+            WHERE {' AND '.join(condiciones)}
+            GROUP BY c.completado
+        """, parametros)
+        conteos = {0: 0, 1: 0, 2: 0}
+        for fila in cursor.fetchall():
+            conteos[fila["completado"] if fila["completado"] is not None else 0] = fila["n"]
+        return {"desde": desde, "hasta": hasta, "tienda": tienda or "todas", "pendientes": conteos.get(0, 0), "aprobados": conteos.get(1, 0), "rechazados": conteos.get(2, 0)}
+    except Exception as e:
+        return {"error": str(e)}
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+HERRAMIENTAS_CHAT = [
+    {
+        "name": "ventas_totales",
+        "description": "Total de ventas ($ y cantidad de órdenes) en un rango de fechas, de una tienda específica o de todas las tiendas juntas.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "desde": {"type": "string", "description": "Fecha de inicio, formato YYYY-MM-DD"},
+                "hasta": {"type": "string", "description": "Fecha de fin (inclusive), formato YYYY-MM-DD"},
+                "tienda": {"type": "string", "description": "Nombre de la tienda (opcional). Si no se especifica, es el total de todas las tiendas."},
+            },
+            "required": ["desde", "hasta"],
+        },
+    },
+    {
+        "name": "ranking_tiendas",
+        "description": "Ranking de tiendas por ventas en un rango de fechas, de mayor a menor — usar para preguntas como 'cuál tienda vendió más'.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "desde": {"type": "string", "description": "Fecha de inicio, formato YYYY-MM-DD"},
+                "hasta": {"type": "string", "description": "Fecha de fin (inclusive), formato YYYY-MM-DD"},
+            },
+            "required": ["desde", "hasta"],
+        },
+    },
+    {
+        "name": "ventas_producto",
+        "description": "Cantidad vendida y monto total de un producto específico (buscado por código de referencia o por nombre) en un rango de fechas.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "referencia_o_nombre": {"type": "string", "description": "Código de referencia del producto o parte de su nombre"},
+                "desde": {"type": "string", "description": "Fecha de inicio, formato YYYY-MM-DD"},
+                "hasta": {"type": "string", "description": "Fecha de fin (inclusive), formato YYYY-MM-DD"},
+            },
+            "required": ["referencia_o_nombre", "desde", "hasta"],
+        },
+    },
+    {
+        "name": "estado_cierres",
+        "description": "Cantidad de cierres de caja aprobados, pendientes y rechazados en un rango de fechas, de una tienda específica o de todas.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "desde": {"type": "string", "description": "Fecha de inicio, formato YYYY-MM-DD"},
+                "hasta": {"type": "string", "description": "Fecha de fin (inclusive), formato YYYY-MM-DD"},
+                "tienda": {"type": "string", "description": "Nombre de la tienda (opcional)"},
+            },
+            "required": ["desde", "hasta"],
+        },
+    },
+]
+
+_HERRAMIENTAS_CHAT_FUNCIONES = {
+    "ventas_totales": lambda args: _chat_ventas_totales(args.get("desde"), args.get("hasta"), args.get("tienda")),
+    "ranking_tiendas": lambda args: _chat_ranking_tiendas(args.get("desde"), args.get("hasta")),
+    "ventas_producto": lambda args: _chat_ventas_producto(args.get("referencia_o_nombre"), args.get("desde"), args.get("hasta")),
+    "estado_cierres": lambda args: _chat_estado_cierres(args.get("desde"), args.get("hasta"), args.get("tienda")),
+}
+
+
+@app.post("/api/chat")
+async def chat_consultas(request: Request, admin=Depends(requerir_admin)):
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="El chat de consultas no está configurado todavía — falta ANTHROPIC_API_KEY en el .env del servidor."
+        )
+
+    import anthropic
+
+    body = await request.json()
+    mensaje = (body.get("mensaje") or "").strip()
+    if not mensaje:
+        raise HTTPException(status_code=400, detail="El mensaje no puede estar vacío.")
+    historial = body.get("historial") or []
+    if len(historial) > 40:
+        historial = historial[-40:]
+
+    hoy = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    system_prompt = (
+        "Sos el asistente de datos de SociaBoss, un panel de ventas para las tiendas Lemaler y Mariola. "
+        f"Hoy es {hoy}. Respondés en español, de forma breve y concreta, citando montos en dólares con 2 "
+        "decimales. Usá siempre las herramientas disponibles para consultar datos reales — nunca inventes "
+        "cifras ni infieras un resultado sin haber llamado a una herramienta. Si una pregunta menciona una "
+        "fecha relativa ('este mes', 'la semana pasada', 'ayer'), calculá vos mismo las fechas exactas "
+        "(YYYY-MM-DD) a partir de la fecha de hoy antes de llamar a una herramienta. "
+        f"Las tiendas válidas son: {', '.join(TIENDAS_CONOCIDAS)}."
+    )
+
+    client = anthropic.Anthropic(api_key=api_key)
+    mensajes = list(historial) + [{"role": "user", "content": mensaje}]
+
+    try:
+        for _ in range(6):  # tope de vueltas de tool-use por seguridad
+            respuesta = client.messages.create(
+                model="claude-opus-5",
+                max_tokens=4096,
+                output_config={"effort": "medium"},
+                system=system_prompt,
+                tools=HERRAMIENTAS_CHAT,
+                messages=mensajes,
+            )
+
+            bloque_assistant = {"role": "assistant", "content": [b.to_dict() for b in respuesta.content]}
+            mensajes.append(bloque_assistant)
+
+            if respuesta.stop_reason != "tool_use":
+                texto_final = "".join(b.text for b in respuesta.content if b.type == "text")
+                if not texto_final:
+                    texto_final = "No pude generar una respuesta para esa consulta."
+                return {"respuesta": texto_final, "historial": mensajes}
+
+            resultados_herramientas = []
+            for bloque in respuesta.content:
+                if bloque.type == "tool_use":
+                    funcion = _HERRAMIENTAS_CHAT_FUNCIONES.get(bloque.name)
+                    resultado = funcion(bloque.input) if funcion else {"error": "Herramienta desconocida."}
+                    resultados_herramientas.append({
+                        "type": "tool_result", "tool_use_id": bloque.id,
+                        "content": json.dumps(resultado, ensure_ascii=False),
+                    })
+            mensajes.append({"role": "user", "content": resultados_herramientas})
+
+        return {
+            "respuesta": "No pude terminar de procesar esa consulta — probá con una pregunta más simple o un rango de fechas más chico.",
+            "historial": mensajes,
+        }
+    except anthropic.AuthenticationError:
+        raise HTTPException(status_code=503, detail="La clave de Anthropic configurada en el servidor no es válida.")
+    except anthropic.RateLimitError:
+        raise HTTPException(status_code=429, detail="Demasiadas consultas seguidas — esperá un momento y probá de nuevo.")
+    except anthropic.APIStatusError as e:
+        raise HTTPException(status_code=502, detail=f"Error del servicio de IA: {e.message}")
+    except anthropic.APIConnectionError:
+        raise HTTPException(status_code=502, detail="No se pudo conectar con el servicio de IA.")
+
+
+# ─── MÓDULO 6: TAREAS — se asignan en Odoo (módulo Proyecto/Tareas), a la
+# tienda: cada tienda tiene su propio usuario en Odoo con el mismo nombre
+# que en TIENDAS_CONOCIDAS. SociaBoss solo LEE de Odoo (nunca escribe de
+# vuelta); el estado del lado de la tienda (pendiente/en progreso/
+# completada) y la revisión del superadmin viven acá, en Postgres. ───
+def _sincronizar_tareas_odoo(cursor):
+    """Trae de Odoo las tareas asignadas a alguna tienda conocida y hace
+    upsert en `tareas` por odoo_task_id. Los campos de workflow propios de
+    SociaBoss (estado, comentarios, revisión) nunca se pisan acá — el
+    upsert solo actualiza título/descripción/fecha límite/prioridad."""
+    try:
+        common = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/common')
+        uid = common.authenticate(ODOO_DB, ODOO_USER, ODOO_PASSWORD, {})
+        if not uid:
+            return
+        models = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/object')
+
+        usuarios_odoo = models.execute_kw(
+            ODOO_DB, uid, ODOO_PASSWORD, 'res.users', 'search_read',
+            [[['name', 'in', TIENDAS_CONOCIDAS]]], {'fields': ['id', 'name']}
+        )
+        mapa_usuario_a_tienda = {u['id']: u['name'] for u in usuarios_odoo}
+        if not mapa_usuario_a_tienda:
+            return
+
+        tareas_odoo = models.execute_kw(
+            ODOO_DB, uid, ODOO_PASSWORD, 'project.task', 'search_read',
+            [[['user_ids', 'in', list(mapa_usuario_a_tienda.keys())]]],
+            {'fields': ['id', 'name', 'description', 'user_ids', 'date_deadline', 'priority']}
+        )
+    except Exception as e:
+        print(f"No se pudo sincronizar tareas desde Odoo: {e}")
+        return
+
+    for t in tareas_odoo:
+        nombre_tienda = next(
+            (mapa_usuario_a_tienda[uid_asignado] for uid_asignado in (t.get('user_ids') or []) if uid_asignado in mapa_usuario_a_tienda),
+            None
+        )
+        if not nombre_tienda:
+            continue
+
+        cursor.execute("SELECT id FROM tiendas WHERE nombre = %s", (nombre_tienda,))
+        fila_tienda = cursor.fetchone()
+        if not fila_tienda:
+            continue
+        tienda_id = fila_tienda["id"] if isinstance(fila_tienda, dict) else fila_tienda[0]
+
+        # La descripción viene en HTML desde Odoo (campo rich text) — se
+        # limpia a texto plano, acá no hace falta el formato.
+        descripcion_html = t.get('description') or ''
+        descripcion = re.sub('<[^<]+?>', ' ', descripcion_html)
+        descripcion = re.sub(r'\s+', ' ', descripcion).strip() or None
+
+        fecha_limite = t.get('date_deadline') or None
+        if fecha_limite:
+            fecha_limite = fecha_limite.split(' ')[0]
+
+        cursor.execute("""
+            INSERT INTO tareas (odoo_task_id, titulo, descripcion, tienda_id, fecha_limite, prioridad)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (odoo_task_id) DO UPDATE SET
+                titulo = EXCLUDED.titulo, descripcion = EXCLUDED.descripcion,
+                tienda_id = EXCLUDED.tienda_id, fecha_limite = EXCLUDED.fecha_limite,
+                prioridad = EXCLUDED.prioridad
+        """, (t['id'], t['name'], descripcion, tienda_id, fecha_limite, t.get('priority')))
+
+
+def _tarea_publica(f, evidencias=None):
+    return {
+        "id": f["id"],
+        "titulo": f["titulo"],
+        "descripcion": f["descripcion"],
+        "tienda": f["tienda_nombre"],
+        "fecha_limite": f["fecha_limite"].strftime("%Y-%m-%d") if f["fecha_limite"] else None,
+        "prioridad": f["prioridad"],
+        "estado": f["estado"],
+        "comentario_usuario": f["comentario_usuario"],
+        "revisado_por_admin": f["revisado_por_admin"],
+        "comentario_admin": f["comentario_admin"],
+        "actualizado_en": f["actualizado_en"].strftime("%Y-%m-%d %H:%M") if f["actualizado_en"] else None,
+        "evidencias": evidencias or [],
+    }
+
+
+@app.get("/api/tareas")
+def obtener_tareas(usuario=Depends(obtener_usuario_actual)):
+    from config.db_manager import RealDictCursor
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        _sincronizar_tareas_odoo(cursor)
+        conexion.commit()
+
+        if usuario["rol"] == "usuario":
+            if not usuario["tienda_id"]:
+                return []
+            cursor.execute("""
+                SELECT t.*, td.nombre AS tienda_nombre
+                FROM tareas t JOIN tiendas td ON td.id = t.tienda_id
+                WHERE t.tienda_id = %s
+                ORDER BY (t.estado = 'completada') ASC, t.fecha_limite ASC NULLS LAST, t.creado_en DESC
+            """, (usuario["tienda_id"],))
+        else:
+            cursor.execute("""
+                SELECT t.*, td.nombre AS tienda_nombre
+                FROM tareas t LEFT JOIN tiendas td ON td.id = t.tienda_id
+                ORDER BY (t.estado = 'completada') ASC, t.fecha_limite ASC NULLS LAST, t.creado_en DESC
+            """)
+        filas = cursor.fetchall()
+
+        # Evidencias de todas las tareas de una — evita una consulta por
+        # tarea (N+1).
+        ids_tareas = [f["id"] for f in filas]
+        evidencias_por_tarea = {}
+        if ids_tareas:
+            cursor.execute("""
+                SELECT id, tarea_id, nombre_archivo, id_google_drive, tipo_archivo, subido_por, creado_en
+                FROM tareas_evidencias WHERE tarea_id = ANY(%s) ORDER BY creado_en ASC
+            """, (ids_tareas,))
+            for e in cursor.fetchall():
+                evidencias_por_tarea.setdefault(e["tarea_id"], []).append({
+                    "id": e["id"],
+                    "nombre_archivo": e["nombre_archivo"],
+                    "url": f"https://drive.google.com/file/d/{e['id_google_drive']}/view" if e["id_google_drive"] else None,
+                    "tipo_archivo": e["tipo_archivo"],
+                    "subido_por": e["subido_por"],
+                })
+
+        return [_tarea_publica(f, evidencias_por_tarea.get(f["id"], [])) for f in filas]
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+@app.post("/api/tareas/{tarea_id}/evidencia")
+async def subir_evidencia_tarea(
+    tarea_id: int,
+    archivo: UploadFile = File(...),
+    usuario=Depends(obtener_usuario_actual)
+):
+    from config.db_manager import RealDictCursor
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        cursor.execute("SELECT id, tienda_id, titulo FROM tareas WHERE id = %s", (tarea_id,))
+        tarea = cursor.fetchone()
+        if not tarea:
+            raise HTTPException(status_code=404, detail="Tarea no encontrada.")
+        if usuario["rol"] == "usuario" and usuario["tienda_id"] != tarea["tienda_id"]:
+            raise HTTPException(status_code=403, detail="Esta tarea no es de tu tienda.")
+
+        from config.drive_manager import subir_archivo_a_drive
+        ruta_t = f"temp_evidencia_tarea_{tarea_id}_{archivo.filename}"
+        with open(ruta_t, "wb") as b:
+            shutil.copyfileobj(archivo.file, b)
+        drive_id = subir_archivo_a_drive(ruta_t, f"TAREA_{tarea_id}_{archivo.filename}", archivo.content_type)
+        if os.path.exists(ruta_t):
+            os.remove(ruta_t)
+
+        if not drive_id:
+            raise HTTPException(status_code=500, detail="No se pudo subir el archivo a Drive.")
+
+        cursor.execute("""
+            INSERT INTO tareas_evidencias (tarea_id, nombre_archivo, id_google_drive, tipo_archivo, subido_por)
+            VALUES (%s, %s, %s, %s, %s) RETURNING id
+        """, (tarea_id, archivo.filename, drive_id, archivo.content_type, usuario["nombre"]))
+        evidencia_id = cursor.fetchone()["id"]
+        cursor.execute("UPDATE tareas SET actualizado_en = NOW() WHERE id = %s", (tarea_id,))
+        _registrar_auditoria(cursor, usuario, "adjuntar_evidencia_tarea", f"{tarea['titulo']} — {archivo.filename}")
+        conexion.commit()
+        return {
+            "status": "success",
+            "evidencia": {
+                "id": evidencia_id, "nombre_archivo": archivo.filename,
+                "url": f"https://drive.google.com/file/d/{drive_id}/view",
+                "tipo_archivo": archivo.content_type, "subido_por": usuario["nombre"],
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al subir la evidencia: {str(e)}")
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+@app.get("/api/tareas/resumen")
+def resumen_tareas(usuario=Depends(obtener_usuario_actual)):
+    """Solo lee lo que ya está en Postgres (sin sincronizar con Odoo) — para
+    que el recordatorio en el Dashboard sea instantáneo. La sincronización
+    de verdad pasa al entrar a la pantalla de Tareas."""
+    from config.db_manager import RealDictCursor
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        if usuario["rol"] == "usuario":
+            if not usuario["tienda_id"]:
+                return {"pendientes": 0}
+            cursor.execute(
+                "SELECT COUNT(*) AS n FROM tareas WHERE tienda_id = %s AND estado != 'completada'",
+                (usuario["tienda_id"],)
+            )
+        elif usuario["rol"] == "superadmin":
+            cursor.execute("SELECT COUNT(*) AS n FROM tareas WHERE estado = 'completada' AND revisado_por_admin = FALSE")
+        else:
+            return {"pendientes": 0}
+        return {"pendientes": cursor.fetchone()["n"]}
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+@app.put("/api/tareas/{tarea_id}/estado")
+async def actualizar_estado_tarea(tarea_id: int, request: Request, usuario=Depends(obtener_usuario_actual)):
+    from config.db_manager import RealDictCursor
+    body = await request.json()
+    nuevo_estado = (body.get("estado") or "").strip()
+    comentario = (body.get("comentario") or "").strip() or None
+    if nuevo_estado not in ("pendiente", "en_progreso", "completada"):
+        raise HTTPException(status_code=400, detail="Estado inválido.")
+
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        cursor.execute("SELECT id, tienda_id, titulo FROM tareas WHERE id = %s", (tarea_id,))
+        tarea = cursor.fetchone()
+        if not tarea:
+            raise HTTPException(status_code=404, detail="Tarea no encontrada.")
+
+        if usuario["rol"] == "usuario" and usuario["tienda_id"] != tarea["tienda_id"]:
+            raise HTTPException(status_code=403, detail="Esta tarea no es de tu tienda.")
+
+        cursor.execute("""
+            UPDATE tareas SET estado = %s, comentario_usuario = %s, revisado_por_admin = FALSE, actualizado_en = NOW()
+            WHERE id = %s
+        """, (nuevo_estado, comentario, tarea_id))
+        _registrar_auditoria(cursor, usuario, "actualizar_tarea", f"{tarea['titulo']} → {nuevo_estado}")
+        conexion.commit()
+        return {"status": "success"}
+    except HTTPException:
+        raise
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+@app.put("/api/tareas/{tarea_id}/revisar")
+async def revisar_tarea(tarea_id: int, request: Request, superadmin=Depends(requerir_superadmin)):
+    from config.db_manager import RealDictCursor
+    body = await request.json()
+    comentario_admin = (body.get("comentario_admin") or "").strip() or None
+
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        cursor.execute("SELECT id, titulo FROM tareas WHERE id = %s", (tarea_id,))
+        tarea = cursor.fetchone()
+        if not tarea:
+            raise HTTPException(status_code=404, detail="Tarea no encontrada.")
+
+        cursor.execute("""
+            UPDATE tareas SET revisado_por_admin = TRUE, comentario_admin = %s, actualizado_en = NOW()
+            WHERE id = %s
+        """, (comentario_admin, tarea_id))
+        _registrar_auditoria(cursor, superadmin, "revisar_tarea", tarea["titulo"])
+        conexion.commit()
+        return {"status": "success"}
+    except HTTPException:
+        raise
     finally:
         cursor.close()
         conexion.close()

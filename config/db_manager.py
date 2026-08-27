@@ -89,16 +89,20 @@ def inicializar_base_datos():
     """)
 
     # 5. Usuarios de la aplicación: cada uno pertenece a una tienda (o ninguna si es admin)
+    #    intentos_fallidos/bloqueado_hasta: bloqueo temporal tras varios logins
+    #    fallidos seguidos (fuerza bruta).
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             id SERIAL PRIMARY KEY,
             nombre VARCHAR(150) NOT NULL,
             email VARCHAR(150) UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
-            rol VARCHAR(20) NOT NULL DEFAULT 'usuario' CHECK (rol IN ('admin','usuario')),
+            rol VARCHAR(20) NOT NULL DEFAULT 'usuario' CHECK (rol IN ('admin','usuario','superadmin')),
             tienda_id INTEGER REFERENCES tiendas(id),
             activo BOOLEAN NOT NULL DEFAULT TRUE,
-            creado_en TIMESTAMP NOT NULL DEFAULT NOW()
+            creado_en TIMESTAMP NOT NULL DEFAULT NOW(),
+            intentos_fallidos INTEGER NOT NULL DEFAULT 0,
+            bloqueado_hasta TIMESTAMP
         )
     """)
 
@@ -181,6 +185,69 @@ def inicializar_base_datos():
             registrado_por VARCHAR(150),
             actualizado_en TIMESTAMP DEFAULT NOW(),
             UNIQUE(fecha, tienda_id)
+        )
+    """)
+
+    # 11. Registro de auditoría: quién hizo qué acción sensible y cuándo
+    #     (aprobar/rechazar cierres, crear/editar usuarios, editar metas, etc.)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS auditoria (
+            id SERIAL PRIMARY KEY,
+            usuario_id INTEGER REFERENCES usuarios(id),
+            usuario_nombre VARCHAR(150),
+            accion VARCHAR(100) NOT NULL,
+            detalle TEXT,
+            creado_en TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    """)
+
+    # 12. Tokens de recuperación de contraseña ("olvidé mi contraseña"):
+    #     de un solo uso, expiran a la hora de generados.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tokens_recuperacion (
+            token VARCHAR(64) PRIMARY KEY,
+            usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+            creado_en TIMESTAMP NOT NULL DEFAULT NOW(),
+            expira_en TIMESTAMP NOT NULL,
+            usado BOOLEAN NOT NULL DEFAULT FALSE
+        )
+    """)
+
+    # 13. Tareas: se asignan en Odoo (módulo Proyecto/Tareas), a la tienda
+    #     (cada tienda tiene su propio usuario en Odoo). Acá solo se trackea
+    #     el estado del lado de la tienda (pendiente/en progreso/completada)
+    #     y la revisión del superadmin — nunca se escribe de vuelta a Odoo.
+    #     odoo_task_id es único: la sincronización hace UPSERT por ese campo.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tareas (
+            id SERIAL PRIMARY KEY,
+            odoo_task_id INTEGER UNIQUE NOT NULL,
+            titulo VARCHAR(300) NOT NULL,
+            descripcion TEXT,
+            tienda_id INTEGER REFERENCES tiendas(id),
+            fecha_limite DATE,
+            prioridad VARCHAR(20),
+            estado VARCHAR(20) NOT NULL DEFAULT 'pendiente' CHECK (estado IN ('pendiente', 'en_progreso', 'completada')),
+            comentario_usuario TEXT,
+            revisado_por_admin BOOLEAN NOT NULL DEFAULT FALSE,
+            comentario_admin TEXT,
+            creado_en TIMESTAMP NOT NULL DEFAULT NOW(),
+            actualizado_en TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    """)
+
+    # 14. Evidencia adjunta a una tarea (foto, PDF, etc.) — la sube la tienda
+    #     al marcar avance, mismo patrón que evidencias_ordenes (Drive).
+    #     Una tarea puede tener varias.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tareas_evidencias (
+            id SERIAL PRIMARY KEY,
+            tarea_id INTEGER NOT NULL REFERENCES tareas(id) ON DELETE CASCADE,
+            nombre_archivo VARCHAR(300),
+            id_google_drive TEXT,
+            tipo_archivo VARCHAR(100),
+            subido_por VARCHAR(150),
+            creado_en TIMESTAMP NOT NULL DEFAULT NOW()
         )
     """)
 

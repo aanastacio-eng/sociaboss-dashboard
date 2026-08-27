@@ -4,7 +4,87 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SociaBoss - Monitoreo POS</title>
+    <link rel="manifest" href="/manifest.json">
+    <link rel="icon" href="/icons/favicon.ico" sizes="any">
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <meta name="theme-color" content="#1e2340">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Rediseño visual (identidad "profesional"): en vez de retocar cada una
+        // de las miles de clases sueltas (slate-*, blue-*) por todo el archivo,
+        // se redefine acá lo que esas clases YA usadas significan. slate pasa de
+        // un gris neutro genérico a un grafito con un dejo azulado (más "panel
+        // financiero", menos "plantilla por defecto"); blue pasa del azul de
+        // Tailwind a un índigo más profundo, con más carácter. Todo lo que ya
+        // dice bg-slate-800, text-blue-600, etc. se actualiza solo.
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        slate: {
+                            50: '#f6f7f9', 100: '#eceef2', 200: '#dbdfe6', 300: '#bcc3cf',
+                            400: '#8b93a3', 500: '#646d7e', 600: '#4a5164', 700: '#363c4c',
+                            800: '#20232e', 900: '#14161d', 950: '#0b0c11',
+                        },
+                        blue: {
+                            50: '#eef1fd', 100: '#dfe3fb', 200: '#c1c9f7', 300: '#97a3f0',
+                            400: '#6c78e6', 500: '#4c52d6', 600: '#3a3dbc', 700: '#302f97',
+                            800: '#282878', 900: '#212262', 950: '#161640',
+                        },
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
+                    },
+                },
+            },
+        };
+    </script>
+    <style id="temaOscuro">
+        /* Modo oscuro: la app usa clases de Tailwind escritas a mano por todos
+           lados (no hay un sistema de tokens), así que en vez de retocar cada
+           elemento con variantes dark:, se reescriben acá las clases de
+           superficie/texto/borde más usadas cuando <html> tiene la clase
+           "dark". El selector compuesto (html.dark .bg-white) ya tiene más
+           especificidad que la regla suelta de Tailwind (.bg-white), así que
+           gana sin necesitar !important. El área de impresión queda afuera
+           a propósito: el reporte impreso siempre se ve en claro.
+           Colaboradores: si agregás una superficie nueva con un color de
+           Tailwind que no esté acá, sumale su línea siguiendo el mismo patrón. */
+        html.dark { color-scheme: dark; }
+        html.dark body,
+        html.dark .bg-slate-50 { background-color: #0f1318; }
+        html.dark .bg-white { background-color: #161b22; }
+        html.dark .bg-slate-100 { background-color: #1c2229; }
+        html.dark .bg-slate-200 { background-color: #232b34; }
+        html.dark .hover\:bg-slate-50:hover { background-color: #1c2229; }
+        html.dark .hover\:bg-slate-100:hover { background-color: #232b34; }
+        html.dark .hover\:bg-slate-200:hover { background-color: #2a323c; }
+        html.dark .bg-slate-800, html.dark .bg-slate-900, html.dark .hover\:bg-slate-950:hover { background-color: #0a0d12; }
+        html.dark .text-slate-900, html.dark .text-slate-800 { color: #e7ecf2; }
+        html.dark .text-slate-700, html.dark .text-slate-600 { color: #b7c0cc; }
+        html.dark .text-slate-500 { color: #8b96a3; }
+        html.dark .text-slate-400 { color: #6b7684; }
+        html.dark .border, html.dark .border-t, html.dark .border-b, html.dark .border-l, html.dark .border-r,
+        html.dark .border-slate-100, html.dark .border-slate-200, html.dark .border-slate-300 { border-color: #2a323c; }
+        html.dark .divide-y > :not([hidden]) ~ :not([hidden]) { border-color: #232b34; }
+        html.dark .shadow-sm, html.dark .shadow-lg { box-shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35); }
+        html.dark input, html.dark select, html.dark textarea { background-color: #0f1318; color: #e7ecf2; border-color: #2a323c; }
+        html.dark input::placeholder, html.dark textarea::placeholder { color: #6b7684; }
+        html.dark input:disabled, html.dark select:disabled, html.dark textarea:disabled,
+        html.dark .bg-slate-50.cursor-not-allowed { background-color: #1c2229; color: #6b7684; }
+        html.dark #areaImpresionCuadre, html.dark #areaImpresionCuadre * { color-scheme: light; }
+
+        /* Switch de modo oscuro (en el menú, arriba de "Salir") — checkbox
+           oculto + dos capas que se estilizan según su estado :checked. */
+        .switch-track { transition: background-color 0.15s ease; }
+        .switch-perilla { transition: transform 0.15s ease; }
+        #switchModoOscuro:checked ~ .switch-track { background-color: #334155; }
+        #switchModoOscuro:checked ~ .switch-track .switch-perilla { transform: translateX(16px); }
+    </style>
     <style>
         /* Al imprimir, solo se ve el reporte de cuadre — todo lo demás se oculta. */
         @media print {
@@ -20,6 +100,17 @@
             body > *:not(#areaImpresionCuadre) { display: none !important; }
             #areaImpresionCuadre { display: block !important; padding: 24px; }
         }
+    </style>
+    <style>
+        /* Toque de "panel financiero": los dígitos de montos/tablas quedan
+           alineados en vez de bailar de ancho según el número (1 vs 8, etc.),
+           que es uno de esos detalles que hacen sentir una interfaz más
+           cuidada. Nunca afecta al texto normal — solo cambia cómo se dibujan
+           los números. */
+        body { font-variant-numeric: tabular-nums; }
+        /* Icono inline (reemplaza los emoji): tamaño y alineado consistentes
+           sin importar dónde se use — junto a texto, solo, en un botón, etc. */
+        .icono { display: inline-block; vertical-align: -0.15em; flex-shrink: 0; }
     </style>
 </head>
 <body class="bg-slate-50 min-h-screen font-sans overflow-x-hidden" id="cuerpoPrincipal">
@@ -42,6 +133,38 @@
                 <button type="submit" id="btnLogin" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-4 rounded-lg text-sm transition-colors">
                     Ingresar
                 </button>
+                <button type="button" onclick="mostrarFormOlvidePassword()" class="w-full text-center text-xs text-slate-400 hover:text-slate-600 pt-1">¿Olvidaste tu contraseña?</button>
+            </form>
+
+            <form id="formOlvidePassword" class="space-y-3 hidden">
+                <p class="text-xs text-slate-500">Ingresá tu email y, si está registrado, te enviaremos un enlace para restablecer tu contraseña.</p>
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Email</label>
+                    <input type="email" id="olvideEmail" required class="w-full border border-slate-300 text-sm p-2.5 rounded-lg">
+                </div>
+                <p id="olvideMensaje" class="text-xs hidden"></p>
+                <button type="submit" id="btnOlvide" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-4 rounded-lg text-sm transition-colors">
+                    Enviar enlace
+                </button>
+                <button type="button" onclick="ocultarFormOlvidePassword()" class="w-full text-center text-xs text-slate-400 hover:text-slate-600 pt-1">← Volver a iniciar sesión</button>
+            </form>
+        </div>
+    </section>
+
+    <!-- PANTALLA RESTABLECER CONTRASEÑA (solo aparece con ?reset=TOKEN en la URL) -->
+    <section id="pantallaResetPassword" class="min-h-screen flex items-center justify-center px-4 hidden">
+        <div class="bg-white p-8 rounded-xl shadow-sm border border-slate-200 max-w-sm w-full">
+            <h1 class="text-2xl font-bold text-slate-900 tracking-tight mb-1 text-center">Nueva contraseña</h1>
+            <p class="text-sm text-slate-500 mb-6 text-center">Elegí una nueva contraseña para tu cuenta.</p>
+            <form id="formResetPassword" class="space-y-3">
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Nueva contraseña</label>
+                    <input type="password" id="resetPasswordNueva" required minlength="6" autocomplete="new-password" class="w-full border border-slate-300 text-sm p-2.5 rounded-lg">
+                </div>
+                <p id="resetPasswordError" class="text-xs text-rose-600 hidden"></p>
+                <button type="submit" id="btnResetPassword" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-4 rounded-lg text-sm transition-colors">
+                    Guardar y volver a iniciar sesión
+                </button>
             </form>
         </div>
     </section>
@@ -60,16 +183,66 @@
                 <button onclick="cerrarMenuPrincipal()" aria-label="Cerrar menú" class="text-slate-400 hover:text-slate-600 text-2xl leading-none p-1">&times;</button>
             </div>
             <div class="flex-1 overflow-auto py-2">
-                <button onclick="irA('ventas')" class="w-full text-left px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">📋 Órdenes del Día</button>
-                <button onclick="irA('kpis')" class="w-full text-left px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">📊 KPIs</button>
-                <button id="btnNavCierre" onclick="irA('cierre')" class="w-full text-left px-5 py-3 text-sm font-medium text-slate-400 cursor-not-allowed" disabled title="Primero genere el Reporte Diario">🏢 Cierre de Caja</button>
-                <button id="btnNavHistorial" onclick="irA('historial')" class="hidden w-full text-left px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">📁 Historial de Cierres</button>
-                <button id="btnNavMetas" onclick="irA('metas')" class="hidden w-full text-left px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">🎯 Metas Mensuales</button>
-                <button id="btnNavComisiones" onclick="irA('comisiones')" class="hidden w-full text-left px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">💰 Comisiones</button>
-                <button id="btnNavUsuarios" onclick="irA('usuarios')" class="hidden w-full text-left px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">👥 Usuarios</button>
+                <button data-pantalla="dashboard" onclick="irA('dashboard')" class="w-full flex items-center gap-3 text-left px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"><svg class="icono text-slate-400" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9.5a1 1 0 0 0 1 1H9a1 1 0 0 0 1-1V15a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4.5a1 1 0 0 0 1 1h2.5a1 1 0 0 0 1-1V10"/></svg>Dashboard</button>
+
+                <details class="group/nav" data-grupo-nav>
+                    <summary class="list-none cursor-pointer flex items-center justify-between px-5 py-2.5 text-[11px] font-bold text-slate-400 uppercase tracking-wide hover:text-slate-600 select-none">
+                        <span>Ventas</span>
+                        <svg class="shrink-0 transition-transform group-open/nav:rotate-90" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+                    </summary>
+                    <div class="pb-1">
+                        <button data-pantalla="ventas" onclick="irA('ventas')" class="w-full flex items-center gap-3 text-left px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"><svg class="icono text-slate-400" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 3.5h6M8 10h8M8 14h8M8 18h5"/></svg>Órdenes del Día</button>
+                        <button id="btnNavKpis" data-pantalla="kpis" onclick="irA('kpis')" class="w-full flex items-center gap-3 text-left px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"><svg class="icono text-slate-400" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="20" x2="6" y2="12"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="18" y1="20" x2="18" y2="15"/></svg>KPIs</button>
+                        <button id="btnNavCierre" data-pantalla="cierre" onclick="irA('cierre')" class="w-full flex items-center gap-3 text-left px-5 py-3 text-sm font-medium text-slate-400 cursor-not-allowed" disabled title="Primero genere el Reporte Diario"><svg class="icono text-slate-300" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9 5 4h14l1 5"/><path d="M4 9a2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9"/><path d="M9 20v-5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v5"/></svg>Cierre de Caja</button>
+                    </div>
+                </details>
+
+                <details class="group/nav" data-grupo-nav>
+                    <summary class="list-none cursor-pointer flex items-center justify-between px-5 py-2.5 text-[11px] font-bold text-slate-400 uppercase tracking-wide hover:text-slate-600 select-none">
+                        <span>Tienda</span>
+                        <svg class="shrink-0 transition-transform group-open/nav:rotate-90" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+                    </summary>
+                    <div class="pb-1">
+                        <button data-pantalla="tareas" onclick="irA('tareas')" class="w-full flex items-center gap-3 text-left px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"><svg class="icono text-slate-400" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12.5l2.5 2.5L16 9"/></svg><span class="flex-1">Tareas</span><span id="badgeTareasNav" class="hidden bg-rose-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none"></span></button>
+                        <button id="btnNavHistorial" data-pantalla="historial" onclick="irA('historial')" class="hidden w-full flex items-center gap-3 text-left px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"><svg class="icono text-slate-400" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6a1 1 0 0 1 1-1h4l2 2h8a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6Z"/></svg>Historial de Cierres</button>
+                        <button id="btnNavMetas" data-pantalla="metas" onclick="irA('metas')" class="hidden w-full flex items-center gap-3 text-left px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"><svg class="icono text-slate-400" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/></svg>Metas Mensuales</button>
+                    </div>
+                </details>
+
+                <details class="group/nav" data-grupo-nav>
+                    <summary class="list-none cursor-pointer flex items-center justify-between px-5 py-2.5 text-[11px] font-bold text-slate-400 uppercase tracking-wide hover:text-slate-600 select-none">
+                        <span>Finanzas</span>
+                        <svg class="shrink-0 transition-transform group-open/nav:rotate-90" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+                    </summary>
+                    <div class="pb-1">
+                        <button id="btnNavComisiones" data-pantalla="comisiones" onclick="irA('comisiones')" class="hidden w-full flex items-center gap-3 text-left px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"><svg class="icono text-slate-400" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v9M14.5 9.8c0-1.1-1.1-1.8-2.5-1.8s-2.5.7-2.5 1.8c0 2.4 5 1.1 5 3.6 0 1.1-1.1 1.8-2.5 1.8s-2.5-.7-2.5-1.8"/></svg>Comisiones</button>
+                        <button id="btnNavReporteEjecutivo" data-pantalla="reporteEjecutivo" onclick="irA('reporteEjecutivo')" class="hidden w-full flex items-center gap-3 text-left px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"><svg class="icono text-slate-400" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3.5h7l4 4V20a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z"/><path d="M14 3.5V8h4"/><path d="M9 12.5h6M9 15.5h6M9 9.5h2"/></svg>Reporte Ejecutivo</button>
+                    </div>
+                </details>
+
+                <details class="group/nav" data-grupo-nav>
+                    <summary class="list-none cursor-pointer flex items-center justify-between px-5 py-2.5 text-[11px] font-bold text-slate-400 uppercase tracking-wide hover:text-slate-600 select-none">
+                        <span>Administración</span>
+                        <svg class="shrink-0 transition-transform group-open/nav:rotate-90" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+                    </summary>
+                    <div class="pb-1">
+                        <button id="btnNavUsuarios" data-pantalla="usuarios" onclick="irA('usuarios')" class="hidden w-full flex items-center gap-3 text-left px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"><svg class="icono text-slate-400" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c0-3 2.5-5.2 5.5-5.2s5.5 2.2 5.5 5.2"/><circle cx="17" cy="9" r="2.6"/><path d="M15 13.3c2.3.3 4 2.2 4 4.5"/></svg>Usuarios</button>
+                        <button id="btnNavAuditoria" data-pantalla="auditoria" onclick="irA('auditoria')" class="hidden w-full flex items-center gap-3 text-left px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"><svg class="icono text-slate-400" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 5 6v5.5c0 4.5 3 7.7 7 9 4-1.3 7-4.5 7-9V6l-7-2.5Z"/><path d="M9 12l2 2 4-4"/></svg>Auditoría</button>
+                        <button id="btnNavRoles" data-pantalla="roles" onclick="irA('roles')" class="hidden w-full flex items-center gap-3 text-left px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"><svg class="icono text-slate-400" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c0-3 2.5-5.2 5.5-5.2s5.5 2.2 5.5 5.2"/><path d="M15.5 12.5l2 2 3.5-3.5"/></svg>Roles</button>
+                    </div>
+                </details>
             </div>
             <div class="border-t border-slate-200 p-4">
                 <p id="nombreUsuarioHeader" class="text-xs font-medium text-slate-500 mb-2"></p>
+                <label class="flex items-center justify-between gap-2 px-1 py-2 mb-1 cursor-pointer select-none">
+                    <span class="text-xs font-medium text-slate-500">Modo oscuro</span>
+                    <span class="relative inline-block w-9 h-5 shrink-0">
+                        <input type="checkbox" id="switchModoOscuro" onchange="alternarModoOscuro()" class="absolute inset-0 opacity-0 cursor-pointer peer">
+                        <span class="switch-track absolute inset-0 rounded-full bg-slate-300 pointer-events-none">
+                            <span class="switch-perilla absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow"></span>
+                        </span>
+                    </span>
+                </label>
                 <button onclick="cerrarSesion()" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 text-sm font-semibold px-3 py-2 rounded-lg transition-colors">Salir</button>
             </div>
         </nav>
@@ -80,13 +253,18 @@
         <!-- Contenido de la app: se desplaza a la derecha cuando el menú abre -->
         <div id="appContenido" class="min-h-screen flex flex-col transition-transform duration-200 ease-out">
         <!-- Encabezado de la aplicación -->
-        <header class="bg-white border-b border-slate-200 px-6 py-3 flex flex-wrap justify-between items-center gap-3">
-            <div class="relative">
-                <button id="btnMenuHamburguesa" onclick="alternarMenuPrincipal()" aria-label="Abrir menú" aria-expanded="false" class="text-slate-500 hover:bg-slate-100 hover:text-slate-700 text-xl leading-none p-2 rounded-lg transition-colors">☰</button>
+        <header class="bg-white border-b border-slate-200/70 shadow-sm px-6 py-3 flex flex-wrap justify-between items-center gap-3 relative z-10">
+            <div class="relative flex items-center gap-1">
+                <button id="btnMenuHamburguesa" onclick="alternarMenuPrincipal()" aria-label="Abrir menú" aria-expanded="false" class="text-slate-500 hover:bg-slate-100 hover:text-slate-700 p-2 rounded-lg transition-colors"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg></button>
             </div>
             <div class="flex items-center space-x-2">
                 <h1 class="text-base font-bold text-slate-800">SociaBoss</h1>
                 <span id="badgeRol" class="bg-slate-100 text-slate-600 text-[11px] font-bold px-2 py-0.5 rounded-full">...</span>
+            </div>
+            <div class="relative order-last w-full sm:order-none sm:w-56">
+                <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.2" y2="16.2"/></svg>
+                <input type="text" id="inputBusquedaGlobal" oninput="buscarGlobal()" onfocus="buscarGlobal()" placeholder="Buscar orden, cierre, usuario..." autocomplete="off" class="w-full text-sm border border-slate-300 rounded-lg pl-8 pr-3 py-1.5">
+                <div id="resultadosBusquedaGlobal" class="hidden absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-80 overflow-auto z-50 text-sm"></div>
             </div>
             <div class="flex flex-wrap items-center gap-3">
                 <div class="flex items-center space-x-1 text-sm">
@@ -111,17 +289,38 @@
 
         <!-- Contenido Principal -->
         <main class="max-w-6xl w-full mx-auto p-4 flex-grow flex flex-col min-h-0">
+            <!-- PANTALLA DASHBOARD (pantalla de inicio) -->
+            <section id="pantallaDashboard" class="bg-white rounded-xl shadow-sm p-6 border border-slate-200/70 flex-1 flex flex-col min-h-0">
+                <div class="flex justify-between items-center border-b pb-3 mb-4 flex-wrap gap-2">
+                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2"><svg class="icono text-slate-400" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9.5a1 1 0 0 0 1 1H9a1 1 0 0 0 1-1V15a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4.5a1 1 0 0 0 1 1h2.5a1 1 0 0 0 1-1V10"/></svg>Dashboard <span id="dashboardFecha" class="text-xs font-normal text-slate-400"></span><span id="dashboardActualizando" class="hidden text-[11px] font-normal text-slate-400 animate-pulse">· actualizando…</span></h2>
+                    <button onclick="cargarDashboard()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors inline-flex items-center gap-1.5"><svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16"/><path d="M3 21v-5h5"/></svg>Actualizar</button>
+                </div>
+                <div class="flex-1 overflow-auto space-y-5">
+                    <button id="bannerTareasDashboard" onclick="irA('tareas')" class="hidden w-full text-left bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-4 py-3 text-sm font-medium flex items-center justify-between gap-3 hover:bg-amber-100 transition-colors">
+                        <span class="flex items-center gap-2"><svg class="icono shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12.5l2.5 2.5L16 9"/></svg><span id="bannerTareasDashboardTexto"></span></span>
+                        <span class="text-xs font-semibold whitespace-nowrap">Ver tareas →</span>
+                    </button>
+                    <div id="dashboardResumenCards" class="grid grid-cols-1 sm:grid-cols-3 gap-3"></div>
+                    <div>
+                        <h3 class="text-xs font-bold text-slate-700 uppercase mb-2">Tiendas</h3>
+                        <div id="dashboardTiendasGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                            <p class="text-slate-400 text-sm italic col-span-full text-center py-6">Cargando...</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <!-- PANTALLA VENTAS -->
-            <section id="pantallaVentas" class="bg-white rounded-lg shadow-sm p-6 border flex-1 flex flex-col min-h-0">
+            <section id="pantallaVentas" class="bg-white rounded-xl shadow-sm p-6 border border-slate-200/70 hidden flex-1 flex flex-col min-h-0">
                 <div class="flex-1 flex flex-col min-h-0">
                     <div class="flex justify-between items-center border-b pb-3 mb-4">
-                        <h2 class="text-lg font-bold text-slate-800">📋 Monitoreo de Órdenes (Odoo POS)</h2>
+                        <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2"><svg class="icono text-slate-400" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 3.5h6M8 10h8M8 14h8M8 18h5"/></svg>Monitoreo de Órdenes (Odoo POS)<span id="ventasActualizando" class="hidden text-[11px] font-normal text-slate-400 animate-pulse">· actualizando…</span></h2>
                         <button id="btnGenerarReporte" onclick="abrirConfirmacionReporteDiario()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-lg flex items-center space-x-1">
                             <span>Generar e Iniciar Reporte Diario</span>
                         </button>
                     </div>
-                    <div id="bannerSoloLectura" class="hidden mb-3 text-xs bg-slate-100 text-slate-600 border border-slate-200 rounded px-3 py-2">
-                        📌 Reporte diario ya enviado para esta tienda y fecha. Esto es una foto congelada del momento del envío — ya no se puede editar ni se actualiza con Odoo.
+                    <div id="bannerSoloLectura" class="hidden mb-3 text-xs bg-slate-100 text-slate-600 border border-slate-200 rounded px-3 py-2 flex items-start gap-1.5">
+                        <svg class="icono shrink-0 mt-0.5" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="7.5" r="0.7" fill="currentColor" stroke="none"/></svg>Reporte diario ya enviado para esta tienda y fecha. Esto es una foto congelada del momento del envío — ya no se puede editar ni se actualiza con Odoo.
                     </div>
                     <div class="mb-3 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 w-fit">
                         <label for="inputBaseApertura" class="text-xs font-bold text-slate-600 uppercase">Base de apertura</label>
@@ -156,27 +355,27 @@
             </section>
 
             <!-- PANTALLA KPIs -->
-            <section id="pantallaKPIs" class="bg-white rounded-lg shadow-sm p-6 border hidden flex-1 flex flex-col min-h-0">
+            <section id="pantallaKPIs" class="bg-white rounded-xl shadow-sm p-6 border border-slate-200/70 hidden flex-1 flex flex-col min-h-0">
                 <div class="flex justify-between items-center border-b pb-3 mb-4 flex-wrap gap-2">
-                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">📊 KPIs</h2>
+                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2"><svg class="icono text-slate-400" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="20" x2="6" y2="12"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="18" y1="20" x2="18" y2="15"/></svg>KPIs<span id="kpiActualizando" class="hidden text-[11px] font-normal text-slate-400 animate-pulse">· actualizando…</span></h2>
                     <div class="flex items-center gap-2">
                         <input type="month" id="kpiMes" onchange="cargarKPIs()" class="border p-1.5 rounded text-sm">
-                        <button onclick="cargarKPIs()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors">🔄 Actualizar</button>
+                        <button onclick="cargarKPIs()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors inline-flex items-center gap-1.5"><svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16"/><path d="M3 21v-5h5"/></svg>Actualizar</button>
                     </div>
                 </div>
 
                 <div id="kpiError" class="hidden mb-4 text-xs bg-rose-50 text-rose-700 border border-rose-200 rounded px-3 py-2"></div>
 
                 <div class="flex-1 overflow-auto space-y-6">
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div class="bg-slate-50 border rounded-lg p-4">
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div class="bg-slate-50 border border-slate-200/70 rounded-xl p-4">
                             <p class="text-xs font-semibold text-slate-400 uppercase">Ventas Hoy</p>
                             <p id="kpiVentasHoy" class="text-2xl font-bold text-slate-800 mt-1">$0.00</p>
                         </div>
-                        <div class="bg-slate-50 border rounded-lg p-4">
+                        <div class="bg-slate-50 border border-slate-200/70 rounded-xl p-4">
                             <div class="flex justify-between items-start">
                                 <p class="text-xs font-semibold text-slate-400 uppercase">Meta Mensual</p>
-                                <button id="btnEditarMeta" onclick="editarMetaMensual()" class="hidden text-[10px] font-bold text-blue-600 hover:text-blue-800">✏️ Editar</button>
+                                <button id="btnEditarMeta" onclick="editarMetaMensual()" class="hidden text-[10px] font-bold text-blue-600 hover:text-blue-800 inline-flex items-center gap-1"><svg class="icono" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l1-4.5L15.5 5 19 8.5 8.5 19 4 20Z"/><path d="M13 7l4 4"/></svg>Editar</button>
                             </div>
                             <p id="kpiProgresoPct" class="text-2xl font-bold text-slate-800 mt-1">—</p>
                             <div class="mt-2">
@@ -185,6 +384,11 @@
                                 </div>
                                 <p id="kpiMetaMensual" class="text-[11px] text-slate-500 mt-1">—</p>
                             </div>
+                        </div>
+                        <div class="bg-slate-50 border border-slate-200/70 rounded-xl p-4">
+                            <p class="text-xs font-semibold text-slate-400 uppercase">Vs. Año Anterior</p>
+                            <p id="kpiVariacionAnual" class="text-2xl font-bold text-slate-800 mt-1">—</p>
+                            <p id="kpiVariacionAnualDetalle" class="text-[11px] text-slate-500 mt-1">—</p>
                         </div>
                     </div>
 
@@ -201,13 +405,15 @@
             </section>
 
             <!-- PANTALLA CIERRE -->
-            <section id="pantallaCierre" class="bg-white rounded-lg shadow-sm p-6 border hidden flex-1 flex flex-col justify-center min-h-0">
+            <section id="pantallaCierre" class="bg-white rounded-xl shadow-sm p-6 border border-slate-200/70 hidden flex-1 flex flex-col justify-center min-h-0">
               <div class="max-w-xl mx-auto w-full">
                 <div class="flex items-center justify-between gap-2 mb-2">
-                    <h2 class="text-lg font-bold text-slate-800">🏢 Formulario de Cierre de Caja Diario</h2>
-                    <button type="button" onclick="imprimirReporteCuadre()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap">🖨️ Imprimir Cuadre</button>
+                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2"><svg class="icono text-slate-400" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9 5 4h14l1 5"/><path d="M4 9a2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9"/><path d="M9 20v-5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v5"/></svg>Formulario de Cierre de Caja Diario</h2>
+                    <button type="button" onclick="imprimirReporteCuadre()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap inline-flex items-center gap-1.5"><svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="9" width="12" height="7" rx="1"/><path d="M7 9V4a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v5"/><path d="M7 16v4a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-4"/></svg>Imprimir Cuadre</button>
                 </div>
-                <p class="text-xs bg-slate-50 text-slate-600 border border-slate-200 p-3 rounded-lg mb-4">⚠️ Registre los documentos obligatorios para autorizar el cierre formal de la tienda seleccionada.</p>
+                <p class="text-xs bg-slate-50 text-slate-600 border border-slate-200 p-3 rounded-lg mb-4 flex items-start gap-1.5"><svg class="icono shrink-0 mt-0.5" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4 22 20.5H2L12 4Z"/><line x1="12" y1="10" x2="12" y2="14.5"/><circle cx="12" cy="17.2" r="0.7" fill="currentColor" stroke="none"/></svg>Registre los documentos obligatorios para autorizar el cierre formal de la tienda seleccionada.</p>
+
+                <div id="cuadreGraficoContenedor" class="hidden border rounded-lg p-3 mb-4"></div>
 
                 <form id="formSesionCierre" class="space-y-4">
                     <div>
@@ -239,13 +445,18 @@
             </section>
 
             <!-- PANTALLA HISTORIAL (módulo propio, solo admin) -->
-            <section id="pantallaHistorial" class="bg-white rounded-lg shadow-sm p-6 border hidden flex-1 flex flex-col min-h-0">
+            <section id="pantallaHistorial" class="bg-white rounded-xl shadow-sm p-6 border border-slate-200/70 hidden flex-1 flex flex-col min-h-0">
                 <div class="flex justify-between items-center border-b pb-3 mb-4">
-                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">📁 Historial de Cierres Registrados</h2>
-                    <button onclick="cargarHistorialCierres()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors">
-                        🔄 Actualizar Historial
-                    </button>
+                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2"><svg class="icono text-slate-400" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6a1 1 0 0 1 1-1h4l2 2h8a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6Z"/></svg>Historial de Cierres Registrados</h2>
+                    <div class="flex items-center gap-2">
+                        <button onclick="exportarHistorialCSV()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors inline-flex items-center gap-1.5"><svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5v11"/><path d="M8 10.5l4 4 4-4"/><path d="M4.5 17.5V19a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5v-1.5"/></svg>Exportar CSV</button>
+                        <button onclick="cargarHistorialCierres()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors inline-flex items-center gap-1.5">
+                            <svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16"/><path d="M3 21v-5h5"/></svg>Actualizar Historial
+                        </button>
+                    </div>
                 </div>
+
+                <div id="historialGraficoContenedor" class="border rounded-lg p-3 mb-4 overflow-x-auto"></div>
 
                 <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 bg-slate-50 border rounded p-3 mb-4 text-xs">
                     <div>
@@ -266,9 +477,9 @@
                         <label class="block font-bold text-slate-500 uppercase mb-1">Estado</label>
                         <select id="filtroHistorialEstado" onchange="aplicarFiltrosHistorial()" class="w-full border p-1.5 rounded text-xs">
                             <option value="">Todos</option>
-                            <option value="0">⏳ Pendiente</option>
-                            <option value="1">✅ Aprobado</option>
-                            <option value="2">❌ Rechazado</option>
+                            <option value="0">Pendiente</option>
+                            <option value="1">Aprobado</option>
+                            <option value="2">Rechazado</option>
                         </select>
                     </div>
                     <div>
@@ -280,7 +491,7 @@
                         <input type="date" id="filtroHistorialHasta" onchange="aplicarFiltrosHistorial()" class="w-full border p-1.5 rounded text-xs">
                     </div>
                     <div class="flex items-end">
-                        <button onclick="limpiarFiltrosHistorial()" class="w-full bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold py-1.5 rounded text-xs">✕ Limpiar</button>
+                        <button onclick="limpiarFiltrosHistorial()" class="w-full bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold py-1.5 rounded text-xs inline-flex items-center justify-center gap-1"><svg class="icono" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>Limpiar</button>
                     </div>
                 </div>
 
@@ -305,9 +516,9 @@
             </section>
 
             <!-- PANTALLA METAS MENSUALES (módulo propio, solo admin) -->
-            <section id="pantallaMetas" class="bg-white rounded-lg shadow-sm p-6 border hidden flex-1 flex flex-col min-h-0">
+            <section id="pantallaMetas" class="bg-white rounded-xl shadow-sm p-6 border border-slate-200/70 hidden flex-1 flex flex-col min-h-0">
                 <div class="flex justify-between items-center border-b pb-3 mb-4 flex-wrap gap-2">
-                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">🎯 Metas Mensuales por Tienda</h2>
+                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2"><svg class="icono text-slate-400" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/></svg>Metas Mensuales por Tienda</h2>
                     <input type="month" id="metasMes" onchange="cargarMetasMensuales()" class="border p-1.5 rounded text-sm">
                 </div>
                 <div class="flex-1 overflow-auto rounded border min-h-0">
@@ -327,18 +538,20 @@
             </section>
 
             <!-- PANTALLA COMISIONES (módulo propio, solo admin) -->
-            <section id="pantallaComisiones" class="bg-white rounded-lg shadow-sm p-6 border hidden flex-1 flex flex-col min-h-0">
+            <section id="pantallaComisiones" class="bg-white rounded-xl shadow-sm p-6 border border-slate-200/70 hidden flex-1 flex flex-col min-h-0">
                 <div class="flex justify-between items-center border-b pb-3 mb-4 flex-wrap gap-2">
-                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">💰 Reporte de Comisiones</h2>
+                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2"><svg class="icono text-slate-400" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v9M14.5 9.8c0-1.1-1.1-1.8-2.5-1.8s-2.5.7-2.5 1.8c0 2.4 5 1.1 5 3.6 0 1.1-1.1 1.8-2.5 1.8s-2.5-.7-2.5-1.8"/></svg>Reporte de Comisiones</h2>
                     <div class="flex items-center gap-2 flex-wrap">
                         <label class="text-xs text-slate-500">Desde</label>
                         <input type="date" id="comisionesDesde" class="border p-1.5 rounded text-sm">
                         <label class="text-xs text-slate-500">Hasta</label>
                         <input type="date" id="comisionesHasta" class="border p-1.5 rounded text-sm">
                         <button onclick="cargarComisiones()" class="bg-slate-800 hover:bg-slate-950 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-colors">Calcular</button>
+                        <button onclick="exportarComisionesCSV()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors inline-flex items-center gap-1.5"><svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5v11"/><path d="M8 10.5l4 4 4-4"/><path d="M4.5 17.5V19a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5v-1.5"/></svg>Exportar CSV</button>
                     </div>
                 </div>
                 <p class="text-[11px] text-slate-400 mb-3">Comisión = 2% sobre Efectivo (Caja + Transferencia + Cheque, sin IVA) + 2% sobre Tarjeta (sin IVA, menos retención de tarjeta 5.18%). No incluye Cuenta de cliente ni Giftcard. Se reparte en partes iguales entre los cajeros que vendieron en cada tienda durante el periodo.</p>
+                <div id="comisionesGraficoContenedor" class="border rounded-lg p-3 mb-3 overflow-x-auto"></div>
                 <div class="flex-1 overflow-auto rounded border min-h-0">
                     <table class="min-w-full text-sm text-left text-slate-600">
                         <thead class="bg-slate-100 text-slate-700 uppercase text-xs font-bold">
@@ -362,11 +575,11 @@
             </section>
 
             <!-- PANTALLA USUARIOS (módulo propio, solo admin) -->
-            <section id="pantallaUsuarios" class="bg-white rounded-lg shadow-sm p-6 border hidden flex-1 flex flex-col min-h-0">
+            <section id="pantallaUsuarios" class="bg-white rounded-xl shadow-sm p-6 border border-slate-200/70 hidden flex-1 flex flex-col min-h-0">
                 <div class="flex justify-between items-center border-b pb-3 mb-4">
-                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2">👥 Usuarios del Sistema</h2>
-                    <button onclick="cargarUsuarios()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors">
-                        🔄 Actualizar
+                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2"><svg class="icono text-slate-400" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c0-3 2.5-5.2 5.5-5.2s5.5 2.2 5.5 5.2"/><circle cx="17" cy="9" r="2.6"/><path d="M15 13.3c2.3.3 4 2.2 4 4.5"/></svg>Usuarios del Sistema</h2>
+                    <button onclick="cargarUsuarios()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors inline-flex items-center gap-1.5">
+                        <svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16"/><path d="M3 21v-5h5"/></svg>Actualizar
                     </button>
                 </div>
 
@@ -404,7 +617,7 @@
                         </select>
                     </div>
                     <div class="sm:col-span-2">
-                        <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 rounded-lg text-sm transition-colors">➕ Crear Usuario</button>
+                        <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 rounded-lg text-sm transition-colors inline-flex items-center justify-center gap-1.5"><svg class="icono" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Crear Usuario</button>
                     </div>
                 </form>
 
@@ -417,6 +630,7 @@
                         <label class="block font-bold text-slate-500 uppercase mb-1">Rol</label>
                         <select id="filtroUsuariosRol" onchange="aplicarFiltrosUsuarios()" class="w-full border p-1.5 rounded text-xs">
                             <option value="">Todos</option>
+                            <option value="superadmin">Superadmin</option>
                             <option value="admin">Admin</option>
                             <option value="usuario">Usuario</option>
                         </select>
@@ -449,7 +663,115 @@
                     </table>
                 </div>
             </section>
+
+            <!-- PANTALLA AUDITORÍA (solo admin) -->
+            <section id="pantallaAuditoria" class="bg-white rounded-xl shadow-sm p-6 border border-slate-200/70 hidden flex-1 flex flex-col min-h-0">
+                <div class="flex justify-between items-center border-b pb-3 mb-4">
+                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2"><svg class="icono text-slate-400" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 5 6v5.5c0 4.5 3 7.7 7 9 4-1.3 7-4.5 7-9V6l-7-2.5Z"/><path d="M9 12l2 2 4-4"/></svg>Registro de Auditoría</h2>
+                    <button onclick="cargarAuditoria()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors inline-flex items-center gap-1.5">
+                        <svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16"/><path d="M3 21v-5h5"/></svg>Actualizar
+                    </button>
+                </div>
+                <p class="text-xs text-slate-400 mb-4">Últimas 200 acciones sensibles del sistema (creación/edición de usuarios, aprobación o rechazo de cierres, cambios de meta mensual, bloqueos de login).</p>
+                <div class="flex-1 overflow-auto rounded border min-h-0">
+                    <table class="min-w-full text-sm text-left text-slate-600">
+                        <thead class="bg-slate-100 text-slate-700 uppercase text-xs font-bold">
+                            <tr>
+                                <th class="px-4 py-3 whitespace-nowrap">Fecha</th>
+                                <th class="px-4 py-3 whitespace-nowrap">Usuario</th>
+                                <th class="px-4 py-3 whitespace-nowrap">Acción</th>
+                                <th class="px-4 py-3 whitespace-nowrap">Detalle</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tablaAuditoriaCuerpo" class="divide-y">
+                            <tr><td colspan="4" class="text-center py-6 text-slate-400">Cargando...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- PANTALLA REPORTE EJECUTIVO (PDF, solo admin) -->
+            <section id="pantallaReporteEjecutivo" class="bg-white rounded-xl shadow-sm p-6 border border-slate-200/70 hidden flex-1 flex flex-col min-h-0">
+                <div class="flex justify-between items-center border-b pb-3 mb-4 flex-wrap gap-2">
+                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2"><svg class="icono text-slate-400" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3.5h7l4 4V20a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z"/><path d="M14 3.5V8h4"/><path d="M9 12.5h6M9 15.5h6M9 9.5h2"/></svg>Reporte Ejecutivo Mensual</h2>
+                </div>
+                <div class="max-w-md">
+                    <p class="text-sm text-slate-500 mb-4">Genera un PDF con el resumen de venta del mes (comparado con el mes anterior y con el mismo mes del año pasado), el desglose por tienda vs. su meta, y el estado de los cierres — listo para imprimir o compartir con gerencia.</p>
+                    <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Mes a reportar</label>
+                    <input type="month" id="reporteEjecutivoMes" class="w-full border p-2 rounded text-sm mb-4">
+                    <button id="btnGenerarReporteEjecutivo" onclick="generarReporteEjecutivoPDF()" class="w-full bg-slate-800 hover:bg-slate-950 text-white font-bold py-2.5 rounded-lg text-sm transition-colors inline-flex items-center justify-center gap-1.5"><svg class="icono" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5v11"/><path d="M8 10.5l4 4 4-4"/><path d="M4.5 17.5V19a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5v-1.5"/></svg>Generar PDF</button>
+                    <p id="reporteEjecutivoError" class="text-xs text-rose-600 mt-2 hidden"></p>
+                </div>
+            </section>
+
+            <!-- PANTALLA ROLES (solo superadmin) -->
+            <section id="pantallaRoles" class="bg-white rounded-xl shadow-sm p-6 border border-slate-200/70 hidden flex-1 flex flex-col min-h-0">
+                <div class="flex justify-between items-center border-b pb-3 mb-4 flex-wrap gap-2">
+                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2"><svg class="icono text-slate-400" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c0-3 2.5-5.2 5.5-5.2s5.5 2.2 5.5 5.2"/><path d="M15.5 12.5l2 2 3.5-3.5"/></svg>Asignación de Roles</h2>
+                    <button onclick="cargarRoles()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors inline-flex items-center gap-1.5"><svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16"/><path d="M3 21v-5h5"/></svg>Actualizar</button>
+                </div>
+                <p class="text-xs text-slate-400 mb-4">Quién puede ser Superadmin (todo, incluyendo KPIs/Comisiones/Auditoría/Reporte Ejecutivo/Roles), Admin (operación diaria de todas las tiendas) o Usuario (solo su tienda). Cambiar el rol de alguien cierra sus sesiones activas — tiene que volver a iniciar sesión.</p>
+                <div class="flex-1 overflow-auto rounded border min-h-0">
+                    <table class="min-w-full text-sm text-left text-slate-600">
+                        <thead class="bg-slate-100 text-slate-700 uppercase text-xs font-bold">
+                            <tr>
+                                <th class="px-4 py-3 whitespace-nowrap">Nombre</th>
+                                <th class="px-4 py-3 whitespace-nowrap">Email</th>
+                                <th class="px-4 py-3 whitespace-nowrap">Tienda</th>
+                                <th class="px-4 py-3 whitespace-nowrap">Rol actual</th>
+                                <th class="px-4 py-3 whitespace-nowrap">Cambiar a</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tablaRolesCuerpo" class="divide-y">
+                            <tr><td colspan="5" class="text-center py-6 text-slate-400">Cargando...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- PANTALLA TAREAS — asignadas en Odoo, trackeadas acá -->
+            <section id="pantallaTareas" class="bg-white rounded-xl shadow-sm p-6 border border-slate-200/70 hidden flex-1 flex flex-col min-h-0">
+                <div class="flex justify-between items-center border-b pb-3 mb-4 flex-wrap gap-2">
+                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2"><svg class="icono text-slate-400" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12.5l2.5 2.5L16 9"/></svg>Tareas</h2>
+                    <div class="flex items-center gap-2">
+                        <select id="filtroTareasTienda" onchange="renderizarTareas()" class="hidden border p-1.5 rounded text-xs"></select>
+                        <select id="filtroTareasEstado" onchange="renderizarTareas()" class="border p-1.5 rounded text-xs">
+                            <option value="">Todos los estados</option>
+                            <option value="pendiente">Pendiente</option>
+                            <option value="en_progreso">En progreso</option>
+                            <option value="completada">Completada</option>
+                        </select>
+                        <button onclick="cargarTareas()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors inline-flex items-center gap-1.5"><svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16"/><path d="M3 21v-5h5"/></svg>Actualizar</button>
+                    </div>
+                </div>
+                <p class="text-xs text-slate-400 mb-4">Las tareas se asignan desde Odoo (a la tienda). Acá se actualiza el avance y, si es una tarea completada, el superadmin la revisa.</p>
+                <div id="tareasContenedor" class="flex-1 overflow-auto space-y-3">
+                    <p class="text-slate-400 text-sm italic text-center py-8">Cargando...</p>
+                </div>
+            </section>
+
         </main>
+        </div>
+
+        <!-- CHAT FLOTANTE (admin/superadmin) — accesible desde cualquier
+             pantalla sin navegar, no es un módulo más del menú. -->
+        <button id="chatFlotanteBoton" onclick="alternarChatFlotante()" title="Chat de Consultas" class="hidden fixed bottom-5 right-5 z-40 w-14 h-14 rounded-full bg-blue-600 hover:bg-blue-700 text-white shadow-lg flex items-center justify-center transition-colors">
+            <svg id="chatFlotanteIconoAbrir" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-4 4v-4H6a2 2 0 0 1-2-2V5Z"/></svg>
+            <svg id="chatFlotanteIconoCerrar" class="hidden" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+        </button>
+        <div id="chatFlotantePanel" class="hidden fixed bottom-24 right-5 z-40 w-[92vw] max-w-sm bg-white rounded-xl shadow-2xl border border-slate-200 flex flex-col" style="height:min(70vh, 560px);">
+            <div class="flex justify-between items-center px-4 py-3 border-b border-slate-100 shrink-0">
+                <h3 class="font-bold text-sm text-slate-800 flex items-center gap-2"><svg class="icono text-slate-400" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-4 4v-4H6a2 2 0 0 1-2-2V5Z"/></svg>Chat de Consultas</h3>
+                <button onclick="reiniciarChat()" class="text-slate-400 hover:text-slate-600 text-xs font-semibold">Nueva conversación</button>
+            </div>
+            <div id="chatMensajes" class="flex-1 overflow-auto space-y-3 px-3 py-3"></div>
+            <div id="chatNoConfigurado" class="hidden text-xs text-slate-500 bg-slate-50 border-t border-slate-200 p-3 text-center shrink-0">
+                El chat todavía no está configurado — falta la clave de Anthropic en el servidor.
+            </div>
+            <form id="formChat" class="flex items-center gap-2 p-3 border-t border-slate-100 shrink-0" onsubmit="return false;">
+                <input type="text" id="inputChat" placeholder="Preguntá algo..." autocomplete="off" class="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm min-w-0">
+                <button type="submit" id="btnEnviarChat" class="bg-slate-800 hover:bg-slate-950 text-white font-bold px-3 py-2 rounded-lg text-sm transition-colors shrink-0">Enviar</button>
+            </form>
         </div>
     </div>
 
@@ -490,7 +812,7 @@
     <div id="modalAuditoriaCierre" onclick="if(event.target === this) cerrarModalAuditoria()" class="fixed inset-0 bg-slate-900 bg-opacity-50 flex items-center justify-center hidden z-50 p-4 overflow-y-auto">
         <div class="bg-white rounded-lg shadow-lg border border-slate-200 max-w-xl w-full overflow-hidden my-8">
             <div class="bg-slate-800 text-white px-4 py-3 flex justify-between items-center">
-                <h3 class="font-bold text-sm flex items-center gap-1">🕵️ Auditar y Validar Cierre de Caja</h3>
+                <h3 class="font-bold text-sm flex items-center gap-1.5"><svg class="icono" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 5 6v5.5c0 4.5 3 7.7 7 9 4-1.3 7-4.5 7-9V6l-7-2.5Z"/><path d="M9 12l2 2 4-4"/></svg>Auditar y Validar Cierre de Caja</h3>
                 <button onclick="cerrarModalAuditoria()" class="text-white hover:text-slate-200 font-bold text-lg">&times;</button>
             </div>
             <div class="p-5 space-y-4 max-h-[80vh] overflow-y-auto">
@@ -501,12 +823,12 @@
                 </div>
 
                 <div id="auditoriaObservacionesWrap" class="hidden text-xs bg-amber-50 text-amber-800 border border-amber-200 rounded-lg px-3 py-2">
-                    <span class="font-bold uppercase block mb-1">📝 Observaciones del cajero</span>
+                    <span class="font-bold uppercase mb-1 flex items-center gap-1"><svg class="icono" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3.5h7l4 4V20a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z"/><path d="M14 3.5V8h4"/><path d="M9 12.5h6M9 15.5h6M9 9.5h2"/></svg>Observaciones del cajero</span>
                     <p id="auditoriaObservaciones" class="whitespace-pre-line"></p>
                 </div>
 
                 <div>
-                    <h4 class="text-xs font-bold text-slate-700 uppercase mb-2">📂 Documentación Entregada (Haga clic para abrir)</h4>
+                    <h4 class="text-xs font-bold text-slate-700 uppercase mb-2 flex items-center gap-1"><svg class="icono" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6a1 1 0 0 1 1-1h4l2 2h8a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6Z"/></svg>Documentación Entregada (Haga clic para abrir)</h4>
                     <div class="space-y-2">
                         <a id="auditoriaLinkResumen" target="_blank" class="flex items-center justify-between p-2 text-xs bg-slate-50 text-slate-700 hover:bg-slate-100 rounded-lg border border-slate-200 font-medium transition-colors">
                             <span>1. Resumen de Caja (X / Z)</span> <span class="text-[10px] bg-slate-700 text-white px-2 py-0.5 rounded font-bold">VER ARCHIVO ↗</span>
@@ -523,7 +845,7 @@
                 <!-- SECCIÓN DE PEDIDOS ALMACENADOS EN TU BASE DE DATOS (NO EN ODOO) -->
                 <div class="border rounded-lg overflow-hidden">
                     <div class="bg-slate-100 px-3 py-2 border-b flex justify-between items-center gap-2">
-                        <h4 class="text-xs font-bold text-slate-700 uppercase">📊 Órdenes Recuperadas de la Base de Datos</h4>
+                        <h4 class="text-xs font-bold text-slate-700 uppercase flex items-center gap-1"><svg class="icono" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="20" x2="6" y2="12"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="18" y1="20" x2="18" y2="15"/></svg>Órdenes Recuperadas de la Base de Datos</h4>
                         <div class="flex items-center gap-2 shrink-0">
                             <span id="auditoriaContadorRevisados" class="text-xs font-bold text-slate-600 bg-white px-2 py-0.5 rounded border">0/0 revisadas</span>
                             <span id="auditoriaTotalPedidosMonto" class="text-xs font-bold text-emerald-700 bg-white px-2 py-0.5 rounded border">Total: $0.00</span>
@@ -537,15 +859,15 @@
 
                 <hr class="my-2">
 
-                <div id="auditoriaBannerDecidido" class="hidden text-xs bg-slate-100 text-slate-600 border border-slate-200 rounded px-3 py-2 text-center font-semibold">
-                    🔒 Este cierre ya fue evaluado — la decisión es inmutable.
+                <div id="auditoriaBannerDecidido" class="hidden text-xs bg-slate-100 text-slate-600 border border-slate-200 rounded px-3 py-2 text-center font-semibold flex items-center justify-center gap-1.5">
+                    <svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>Este cierre ya fue evaluado — la decisión es inmutable.
                 </div>
                 <div id="auditoriaAccionesDecision" class="flex gap-2 pt-2">
-                    <button id="btnAuditoriaRechazar" onclick="procesarVistoBueno(false)" class="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-bold py-2 rounded-lg text-xs transition-colors">
-                        ❌ Rechazar / Observaciones
+                    <button id="btnAuditoriaRechazar" onclick="procesarVistoBueno(false)" class="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-bold py-2 rounded-lg text-xs transition-colors inline-flex items-center justify-center gap-1.5">
+                        <svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></svg>Rechazar / Observaciones
                     </button>
-                    <button id="btnAuditoriaAprobar" onclick="procesarVistoBueno(true)" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 rounded-lg text-xs transition-colors">
-                        ✅ Dar Visto Bueno (Aprobar)
+                    <button id="btnAuditoriaAprobar" onclick="procesarVistoBueno(true)" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 rounded-lg text-xs transition-colors inline-flex items-center justify-center gap-1.5">
+                        <svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5 5.5-6"/></svg>Dar Visto Bueno (Aprobar)
                     </button>
                 </div>
             </div>
@@ -558,7 +880,7 @@
     <div id="modalConfirmarReporteDiario" onclick="if(event.target === this) cerrarConfirmacionReporteDiario()" class="fixed inset-0 bg-slate-900 bg-opacity-50 flex items-center justify-center hidden z-50 p-4 overflow-y-auto">
         <div class="bg-white rounded-lg shadow-lg border border-slate-200 max-w-2xl w-full overflow-hidden my-8">
             <div class="bg-slate-800 text-white px-4 py-3 flex justify-between items-center">
-                <h3 class="font-bold text-sm flex items-center gap-1">📋 Confirmar Reporte Diario — Cuadre por Método de Pago</h3>
+                <h3 class="font-bold text-sm flex items-center gap-1.5"><svg class="icono" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 3.5h6M8 10h8M8 14h8M8 18h5"/></svg>Confirmar Reporte Diario — Cuadre por Método de Pago</h3>
                 <button onclick="cerrarConfirmacionReporteDiario()" class="text-white hover:text-slate-200 font-bold text-lg">&times;</button>
             </div>
             <div class="p-5 space-y-4 max-h-[80vh] overflow-y-auto">
@@ -584,10 +906,10 @@
                 </div>
 
                 <div class="flex gap-2 pt-2">
-                    <button type="button" onclick="imprimirComparacionCuadre()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-2 rounded-lg transition-colors">🖨️ Imprimir</button>
+                    <button type="button" onclick="imprimirComparacionCuadre()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-2 rounded-lg transition-colors inline-flex items-center gap-1.5"><svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="9" width="12" height="7" rx="1"/><path d="M7 9V4a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v5"/><path d="M7 16v4a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-4"/></svg>Imprimir</button>
                     <div class="flex-1"></div>
                     <button type="button" onclick="cerrarConfirmacionReporteDiario()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2 rounded-lg text-xs transition-colors">Cancelar</button>
-                    <button type="button" id="btnConfirmarYGenerarReporte" onclick="confirmarYGenerarReporteDiario()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-lg text-xs transition-colors">✅ Confirmar y Generar Reporte</button>
+                    <button type="button" id="btnConfirmarYGenerarReporte" onclick="confirmarYGenerarReporteDiario()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-lg text-xs transition-colors inline-flex items-center gap-1.5"><svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5 5.5-6"/></svg>Confirmar y Generar Reporte</button>
                 </div>
             </div>
         </div>
@@ -597,7 +919,7 @@
     <div id="modalDetalleComision" onclick="if(event.target === this) cerrarDetalleComision()" class="fixed inset-0 bg-slate-900 bg-opacity-50 flex items-center justify-center hidden z-50 p-4 overflow-y-auto">
         <div class="bg-white rounded-lg shadow-lg border border-slate-200 max-w-2xl w-full overflow-hidden my-8">
             <div class="bg-slate-800 text-white px-4 py-3 flex justify-between items-center">
-                <h3 id="detalleComisionTitulo" class="font-bold text-sm">💰 Detalle de Comisión</h3>
+                <h3 id="detalleComisionTitulo" class="font-bold text-sm flex items-center gap-1.5"><svg class="icono" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v9M14.5 9.8c0-1.1-1.1-1.8-2.5-1.8s-2.5.7-2.5 1.8c0 2.4 5 1.1 5 3.6 0 1.1-1.1 1.8-2.5 1.8s-2.5-.7-2.5-1.8"/></svg>Detalle de Comisión</h3>
                 <button onclick="cerrarDetalleComision()" class="text-white hover:text-slate-200 font-bold text-lg">&times;</button>
             </div>
             <div class="p-5 space-y-4 max-h-[80vh] overflow-y-auto">
@@ -630,6 +952,11 @@
     <!-- Tooltip del gráfico de KPIs (día a día vs. mes anterior) -->
     <div id="kpiTooltip" class="hidden fixed z-50 bg-slate-800 text-white text-[11px] rounded-lg px-3 py-2 shadow-lg pointer-events-none whitespace-nowrap"></div>
 
+    <!-- Notificaciones tipo "toast" — para confirmaciones menores (guardar
+         apertura, conteo físico, etc.) que no necesitan interrumpir con un
+         modal. Se apilan y se auto-descartan. -->
+    <div id="toastContenedor" class="fixed bottom-4 right-4 z-[9998] flex flex-col gap-2 items-end pointer-events-none"></div>
+
     <!-- Área de impresión del Reporte de Cuadre de Caja — invisible en pantalla,
          solo se muestra cuando se llama a imprimir (ver @media print arriba). -->
     <div id="areaImpresionCuadre" class="hidden"></div>
@@ -652,6 +979,72 @@
     </div>
 
    <script>
+        // ══════════════════════════════════════════════════════════════
+        // MODO OSCURO — se aplica antes que nada más para que no haya un
+        // "flash" de tema claro al cargar si el usuario ya eligió oscuro.
+        // ══════════════════════════════════════════════════════════════
+        (function inicializarModoOscuro() {
+            try {
+                const activo = localStorage.getItem("socia_tema") === "oscuro";
+                document.documentElement.classList.toggle("dark", activo);
+                const switchEl = document.getElementById("switchModoOscuro");
+                if (switchEl) switchEl.checked = activo;
+            } catch (e) { /* modo privado, etc. */ }
+        })();
+
+        // El switch vive en el menú (checkbox real, no un botón) — su propio
+        // estado .checked ya es la fuente de verdad, solo hay que reflejarlo.
+        function alternarModoOscuro() {
+            const activo = document.getElementById("switchModoOscuro").checked;
+            document.documentElement.classList.toggle("dark", activo);
+            try { localStorage.setItem("socia_tema", activo ? "oscuro" : "claro"); } catch (e) { /* modo privado */ }
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // TOASTS — confirmaciones menores que no necesitan bloquear con un
+        // modal (guardar apertura, conteo físico, comprobante, etc.).
+        // ══════════════════════════════════════════════════════════════
+        const _COLOR_TOAST = {
+            exito: 'bg-emerald-600',
+            error: 'bg-rose-600',
+            info: 'bg-slate-800',
+        };
+        function mostrarToast(mensaje, tipo = 'exito') {
+            const cont = document.getElementById("toastContenedor");
+            if (!cont) return;
+            const toast = document.createElement("div");
+            toast.className = `pointer-events-auto ${_COLOR_TOAST[tipo] || _COLOR_TOAST.info} text-white text-sm font-medium px-4 py-2.5 rounded-lg shadow-lg flex items-center gap-2 transition-all duration-200 opacity-0 translate-y-1`;
+            const _ICONO_TOAST_EXITO = '<svg class="icono" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5 5.5-6"/></svg>';
+            const _ICONO_TOAST_ERROR = '<svg class="icono" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4 22 20.5H2L12 4Z"/><line x1="12" y1="10" x2="12" y2="14.5"/><circle cx="12" cy="17.2" r="0.7" fill="currentColor" stroke="none"/></svg>';
+            const _ICONO_TOAST_INFO = '<svg class="icono" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="7.5" r="0.7" fill="currentColor" stroke="none"/></svg>';
+            toast.innerHTML = `<span>${tipo === 'exito' ? _ICONO_TOAST_EXITO : tipo === 'error' ? _ICONO_TOAST_ERROR : _ICONO_TOAST_INFO}</span><span>${mensaje}</span>`;
+            cont.appendChild(toast);
+            requestAnimationFrame(() => { toast.classList.remove("opacity-0", "translate-y-1"); });
+            setTimeout(() => {
+                toast.classList.add("opacity-0");
+                setTimeout(() => toast.remove(), 250);
+            }, 2600);
+        }
+
+        // Íconos reutilizados en texto generado por JS (reemplazan a los
+        // emoji que usaba la app antes — mismo símbolo, un solo lugar donde
+        // cambiarlo si hace falta).
+        const _ICONO_ALERTA = '<svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4 22 20.5H2L12 4Z"/><line x1="12" y1="10" x2="12" y2="14.5"/><circle cx="12" cy="17.2" r="0.7" fill="currentColor" stroke="none"/></svg>';
+        const _ICONO_CHECK = '<svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5 5.5-6"/></svg>';
+        const _ICONO_X = '<svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></svg>';
+        const _ICONO_RELOJ = '<svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5.5l4 2.5"/></svg>';
+        const _ICONO_LAPIZ = '<svg class="icono" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l1-4.5L15.5 5 19 8.5 8.5 19 4 20Z"/><path d="M13 7l4 4"/></svg>';
+        const _ICONO_LLAVE = '<svg class="icono" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8"/><path d="M16 7l2.5 2.5"/><path d="M13.5 9.5L16 12"/></svg>';
+        const _ICONO_CANDADO = '<svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>';
+        const _ICONO_CAMARA = '<svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5a1 1 0 0 1 1-1h2l1.2-1.8a1 1 0 0 1 .8-.5h6a1 1 0 0 1 .8.5L17 7.5h2a1 1 0 0 1 1 1V18a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V8.5Z"/><circle cx="12" cy="13" r="3.2"/></svg>';
+        const _ICONO_ESCUDO = '<svg class="icono" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 5 6v5.5c0 4.5 3 7.7 7 9 4-1.3 7-4.5 7-9V6l-7-2.5Z"/></svg>';
+        const _ICONO_LUPA = '<svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.2" y2="16.2"/></svg>';
+        const _ICONO_IMPRESORA = '<svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="9" width="12" height="7" rx="1"/><path d="M7 9V4a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v5"/><path d="M7 16v4a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-4"/></svg>';
+        const _ICONO_CARPETA = '<svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6a1 1 0 0 1 1-1h4l2 2h8a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6Z"/></svg>';
+        const _ICONO_ADJUNTAR = '<svg class="icono" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 8.5 9.4 16.6a3 3 0 1 1-4.2-4.2l8-8a2 2 0 1 1 2.8 2.8l-7.6 7.6a1 1 0 0 1-1.4-1.4l6.9-6.9"/></svg>';
+        const _ICONO_NOTA = '<svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3.5h7l4 4V20a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z"/><path d="M14 3.5V8h4"/><path d="M9 12.5h6M9 15.5h6M9 9.5h2"/></svg>';
+        const _ICONO_ESCUDO_CHECK = '<svg class="icono" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 5 6v5.5c0 4.5 3 7.7 7 9 4-1.3 7-4.5 7-9V6l-7-2.5Z"/><path d="M9 12l2 2 4-4"/></svg>';
+
         let SESION_USUARIO = null;
         let BASE_DATOS_VENTAS = [];
         let HISTORIAL_CIERRES_MEMORIA = [];
@@ -743,6 +1136,11 @@
         // SESIÓN / LOGIN
         // ══════════════════════════════════════════════════════════════
         async function iniciarApp() {
+            const params = new URLSearchParams(window.location.search);
+            if (params.get("reset")) {
+                document.getElementById("pantallaResetPassword").classList.remove("hidden");
+                return;
+            }
             try {
                 const resp = await fetch("/api/auth/me");
                 if (!resp.ok) throw new Error("sin-sesion");
@@ -768,33 +1166,64 @@
 
             // Al refrescar (F5) o volver a entrar, seguimos en la misma
             // pantalla en la que estaba en vez de siempre caer en Órdenes
-            // del Día. Si esa pantalla es exclusiva de admin y ya no lo es
-            // (ej. cambió de usuario en la misma pestaña), caemos a "ventas".
-            const pantallasAdmin = ['historial', 'usuarios', 'metas', 'comisiones'];
-            let pantallaGuardada = 'ventas';
-            try { pantallaGuardada = sessionStorage.getItem("socia_pantalla_actual") || 'ventas'; } catch (e) { /* modo privado, etc. */ }
-            if (pantallasAdmin.includes(pantallaGuardada) && SESION_USUARIO.rol !== 'admin') {
-                pantallaGuardada = 'ventas';
+            // del Día. Si esa pantalla ya no es accesible para el rol actual
+            // (ej. cambió de usuario en la misma pestaña), caemos a "dashboard".
+            const pantallasAdminOSuperior = ['historial', 'usuarios', 'metas'];
+            const pantallasSoloSuperAdmin = ['comisiones', 'auditoria', 'reporteEjecutivo', 'roles'];
+            let pantallaGuardada = 'dashboard';
+            try { pantallaGuardada = sessionStorage.getItem("socia_pantalla_actual") || 'dashboard'; } catch (e) { /* modo privado, etc. */ }
+            const rolActual = SESION_USUARIO.rol;
+            const noEsAdminOSuperior = rolActual !== 'admin' && rolActual !== 'superadmin';
+            if (
+                (pantallasAdminOSuperior.includes(pantallaGuardada) && noEsAdminOSuperior) ||
+                (pantallasSoloSuperAdmin.includes(pantallaGuardada) && rolActual !== 'superadmin') ||
+                (pantallaGuardada === 'kpis' && rolActual === 'admin')
+            ) {
+                pantallaGuardada = 'dashboard';
             }
 
             cambiarPantalla(pantallaGuardada);
             ejecutarConsultaOdoo();
+            actualizarBadgeTareas();
         }
 
         function aplicarRolEnInterfaz() {
-            const esAdmin = SESION_USUARIO.rol === 'admin';
+            // Tres niveles: "usuario" (una tienda), "admin" (todas las tiendas,
+            // operación del día a día) y "superadmin" (todo lo del admin, más
+            // los módulos sensibles: KPIs, Comisiones, Auditoría, Reporte
+            // Ejecutivo y Roles).
+            const rol = SESION_USUARIO.rol;
+            const esSuperAdmin = rol === 'superadmin';
+            const esAdminOSuperior = rol === 'admin' || esSuperAdmin;
 
-            document.getElementById("badgeRol").innerText = esAdmin ? "ADMIN" : "TIENDA";
+            document.getElementById("badgeRol").innerText = esSuperAdmin ? "SUPERADMIN" : esAdminOSuperior ? "ADMIN" : "TIENDA";
             document.getElementById("nombreUsuarioHeader").innerText =
-                `${SESION_USUARIO.nombre} · ${esAdmin ? 'Todas las tiendas' : (SESION_USUARIO.tienda || 'Sin tienda asignada')}`;
+                `${SESION_USUARIO.nombre} · ${esAdminOSuperior ? 'Todas las tiendas' : (SESION_USUARIO.tienda || 'Sin tienda asignada')}`;
 
-            document.getElementById("btnNavHistorial").classList.toggle("hidden", !esAdmin);
-            document.getElementById("btnNavMetas").classList.toggle("hidden", !esAdmin);
-            document.getElementById("btnNavComisiones").classList.toggle("hidden", !esAdmin);
-            document.getElementById("btnNavUsuarios").classList.toggle("hidden", !esAdmin);
+            document.getElementById("chatFlotanteBoton").classList.toggle("hidden", !esAdminOSuperior);
+            if (!esAdminOSuperior) cerrarChatFlotante();
+            document.getElementById("btnNavHistorial").classList.toggle("hidden", !esAdminOSuperior);
+            document.getElementById("btnNavMetas").classList.toggle("hidden", !esAdminOSuperior);
+            document.getElementById("btnNavUsuarios").classList.toggle("hidden", !esAdminOSuperior);
+            document.getElementById("btnNavComisiones").classList.toggle("hidden", !esSuperAdmin);
+            document.getElementById("btnNavAuditoria").classList.toggle("hidden", !esSuperAdmin);
+            document.getElementById("btnNavReporteEjecutivo").classList.toggle("hidden", !esSuperAdmin);
+            document.getElementById("btnNavRoles").classList.toggle("hidden", !esSuperAdmin);
+            // KPIs es al revés de lo normal: lo ve el usuario de tienda (su
+            // propio KPI) y el superadmin (todas), pero NO el rol "admin".
+            document.getElementById("btnNavKpis").classList.toggle("hidden", rol === 'admin');
+
+            // Los módulos del menú están agrupados por función (Ventas,
+            // Tienda, Finanzas, Administración) en <details> colapsables —
+            // si para este rol ningún ítem de un grupo quedó visible, se
+            // oculta el grupo entero en vez de dejar un título sin nada abajo.
+            document.querySelectorAll('#navPrincipal details[data-grupo-nav]').forEach((grupo) => {
+                const algunoVisible = Array.from(grupo.querySelectorAll('button[data-pantalla]')).some(btn => !btn.classList.contains('hidden'));
+                grupo.classList.toggle('hidden', !algunoVisible);
+            });
 
             const selector = document.getElementById("selectorTienda");
-            if (esAdmin) {
+            if (esAdminOSuperior) {
                 selector.disabled = false;
             } else {
                 if (SESION_USUARIO.tienda) selector.value = SESION_USUARIO.tienda;
@@ -831,10 +1260,188 @@
             }
         });
 
+        function mostrarFormOlvidePassword() {
+            document.getElementById("formLogin").classList.add("hidden");
+            document.getElementById("formOlvidePassword").classList.remove("hidden");
+        }
+        function ocultarFormOlvidePassword() {
+            document.getElementById("formOlvidePassword").classList.add("hidden");
+            document.getElementById("formLogin").classList.remove("hidden");
+        }
+
+        document.getElementById("formOlvidePassword").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const email = document.getElementById("olvideEmail").value.trim();
+            const btn = document.getElementById("btnOlvide");
+            const mensajeEl = document.getElementById("olvideMensaje");
+            btn.disabled = true;
+            btn.innerText = "Enviando...";
+            try {
+                const resp = await fetch("/api/auth/olvide-password", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email })
+                });
+                const datos = await resp.json();
+                mensajeEl.innerText = datos.mensaje || "Si ese email está registrado, te llegará un correo con instrucciones.";
+                mensajeEl.className = "text-xs text-emerald-600";
+                mensajeEl.classList.remove("hidden");
+            } catch (err) {
+                mensajeEl.innerText = "No se pudo procesar la solicitud. Intentá de nuevo.";
+                mensajeEl.className = "text-xs text-rose-600";
+                mensajeEl.classList.remove("hidden");
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "Enviar enlace";
+            }
+        });
+
+        document.getElementById("formResetPassword").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const params = new URLSearchParams(window.location.search);
+            const token = params.get("reset");
+            const password = document.getElementById("resetPasswordNueva").value;
+            const btn = document.getElementById("btnResetPassword");
+            const errorEl = document.getElementById("resetPasswordError");
+            errorEl.classList.add("hidden");
+            btn.disabled = true;
+            btn.innerText = "Guardando...";
+            try {
+                const resp = await fetch("/api/auth/resetear-password", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ token, password })
+                });
+                const datos = await resp.json();
+                if (!resp.ok) throw new Error(datos.detail || "No se pudo restablecer la contraseña.");
+                await mostrarAviso("Contraseña actualizada. Ahora podés iniciar sesión con tu nueva contraseña.", 'bg-emerald-600');
+                window.location.href = window.location.pathname;
+            } catch (err) {
+                errorEl.innerText = err.message;
+                errorEl.classList.remove("hidden");
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "Guardar y volver a iniciar sesión";
+            }
+        });
+
         async function cerrarSesion() {
             try { await fetch("/api/auth/logout", { method: "POST" }); } catch (e) { /* seguimos igual */ }
             try { sessionStorage.removeItem("socia_pantalla_actual"); } catch (e) { /* modo privado, etc. */ }
             window.location.reload();
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // CACHÉ "última foto conocida" — evita la espera de Odoo en cada
+        // entrada a una pantalla: se muestra de inmediato lo último que se
+        // vio (guardado en localStorage) mientras se consulta en segundo
+        // plano, y se reemplaza en cuanto llega la respuesta fresca. Nunca
+        // reemplaza el fetch real — solo evita la pantalla en blanco mientras
+        // se espera.
+        // ══════════════════════════════════════════════════════════════
+        function _guardarCache(clave, datos) {
+            try { localStorage.setItem(`socia_cache_${clave}`, JSON.stringify({ datos, guardadoEn: Date.now() })); }
+            catch (e) { /* localStorage lleno o modo privado: no es crítico, seguimos igual */ }
+        }
+        function _leerCache(clave) {
+            try {
+                const crudo = localStorage.getItem(`socia_cache_${clave}`);
+                return crudo ? JSON.parse(crudo) : null;
+            } catch (e) { return null; }
+        }
+        function _marcarActualizando(idIndicador, mostrando) {
+            const el = document.getElementById(idIndicador);
+            if (el) el.classList.toggle("hidden", !mostrando);
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // DASHBOARD — pantalla de inicio: venta de hoy por tienda (en vivo)
+        // + estado del reporte diario/cierre de cada una, con alertas.
+        // ══════════════════════════════════════════════════════════════
+        async function cargarDashboard() {
+            const claveCache = `dashboard_${SESION_USUARIO?.id ?? 'anon'}`;
+            const cache = _leerCache(claveCache);
+            if (cache) {
+                _renderizarDashboard(cache.datos);
+                _marcarActualizando("dashboardActualizando", true);
+            } else {
+                document.getElementById("dashboardTiendasGrid").innerHTML = `<p class="text-slate-400 text-sm italic col-span-full text-center py-6">Consultando Odoo...</p>`;
+            }
+
+            try {
+                const resp = await fetch("/api/dashboard");
+                if (resp.status === 401) { mostrarLogin(); return; }
+                if (!resp.ok) throw new Error("No se pudo cargar el dashboard.");
+                const datos = await resp.json();
+                _guardarCache(claveCache, datos);
+                _renderizarDashboard(datos);
+            } catch (e) {
+                if (!cache) {
+                    document.getElementById("dashboardTiendasGrid").innerHTML = `<p class="text-rose-600 text-sm text-center py-6 col-span-full"><svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4 22 20.5H2L12 4Z"/><line x1="12" y1="10" x2="12" y2="14.5"/><circle cx="12" cy="17.2" r="0.7" fill="currentColor" stroke="none"/></svg> ${e.message}</p>`;
+                } else {
+                    mostrarToast("No se pudo actualizar el dashboard — mostrando los últimos datos guardados.", 'error');
+                }
+            } finally {
+                _marcarActualizando("dashboardActualizando", false);
+            }
+        }
+
+        function _renderizarDashboard(datos) {
+            const cards = document.getElementById("dashboardResumenCards");
+            const grid = document.getElementById("dashboardTiendasGrid");
+
+            document.getElementById("dashboardFecha").innerText = datos.fecha ? `— ${datos.fecha}` : '';
+
+            const r = datos.resumen;
+            cards.innerHTML = `
+                <div class="bg-slate-50 border border-slate-200/70 rounded-xl p-4">
+                    <p class="text-xs font-semibold text-slate-400 uppercase">Venta de Hoy${(SESION_USUARIO?.rol === 'admin' || SESION_USUARIO?.rol === 'superadmin') ? ' (todas las tiendas)' : ''}</p>
+                    <p class="text-2xl font-bold text-emerald-700 mt-1">$${r.venta_total_hoy.toFixed(2)}</p>
+                </div>
+                <div class="bg-slate-50 border border-slate-200/70 rounded-xl p-4">
+                    <p class="text-xs font-semibold text-slate-400 uppercase">Cierres Pendientes de Revisión</p>
+                    <p class="text-2xl font-bold ${r.tiendas_con_reporte_pendiente > 0 ? 'text-amber-600' : 'text-slate-800'} mt-1">${r.tiendas_con_reporte_pendiente}</p>
+                </div>
+                <div class="bg-slate-50 border border-slate-200/70 rounded-xl p-4">
+                    <p class="text-xs font-semibold text-slate-400 uppercase">Tiendas con Diferencia en Cuadre</p>
+                    <p class="text-2xl font-bold ${r.tiendas_con_diferencia > 0 ? 'text-rose-600' : 'text-slate-800'} mt-1">${r.tiendas_con_diferencia}</p>
+                </div>
+            `;
+
+            grid.innerHTML = "";
+            if (!datos.tiendas || datos.tiendas.length === 0) {
+                grid.innerHTML = `<p class="text-slate-400 text-sm italic col-span-full text-center py-6">No tenés ninguna tienda asignada.</p>`;
+                return;
+            }
+            datos.tiendas.forEach(t => {
+                let estadoBadge = `<span class="bg-slate-100 text-slate-500 ring-1 ring-slate-600/10 text-[11px] px-2 py-0.5 rounded-md font-semibold">Sin enviar</span>`;
+                if (t.reporte_enviado_hoy) {
+                    if (t.cierre_estado === 1) estadoBadge = `<span class="bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/10 text-[11px] px-2 py-0.5 rounded-md font-semibold inline-flex items-center gap-1">${_ICONO_CHECK}Aprobado</span>`;
+                    else if (t.cierre_estado === 2) estadoBadge = `<span class="bg-rose-50 text-rose-700 ring-1 ring-rose-600/10 text-[11px] px-2 py-0.5 rounded-md font-semibold inline-flex items-center gap-1">${_ICONO_X}Rechazado</span>`;
+                    else estadoBadge = `<span class="bg-amber-50 text-amber-700 ring-1 ring-amber-600/10 text-[11px] px-2 py-0.5 rounded-md font-semibold inline-flex items-center gap-1">${_ICONO_RELOJ}Pendiente</span>`;
+                }
+                grid.innerHTML += `
+                    <button onclick="irADashboardTienda('${t.tienda.replace(/'/g, "\\'")}')" class="text-left bg-white border rounded-lg p-4 hover:border-slate-300 hover:shadow-sm transition-all">
+                        <div class="flex justify-between items-start gap-2 mb-2">
+                            <span class="font-semibold text-slate-800 text-sm">${t.tienda}</span>
+                            ${t.alerta_diferencia ? '<span title="Diferencia grande en el cuadre" class="text-rose-500"><svg class="icono" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4 22 20.5H2L12 4Z"/><line x1="12" y1="10" x2="12" y2="14.5"/><circle cx="12" cy="17.2" r="0.7" fill="currentColor" stroke="none"/></svg></span>' : ''}
+                        </div>
+                        <p class="text-xl font-bold text-slate-900">$${t.venta_hoy.toFixed(2)}</p>
+                        <p class="text-[11px] text-slate-400 mb-2">${t.cantidad_ordenes_hoy} órdenes hoy</p>
+                        ${estadoBadge}
+                    </button>`;
+            });
+        }
+
+        // Click en una tarjeta de tienda: si soy admin, cambio el selector a esa
+        // tienda y me voy a Monitoreo de Órdenes; si soy usuario normal ya es mi
+        // única tienda, solo navego.
+        function irADashboardTienda(nombreTienda) {
+            if (SESION_USUARIO?.rol === 'admin' || SESION_USUARIO?.rol === 'superadmin') {
+                document.getElementById("selectorTienda").value = nombreTienda;
+                filtrarPorLocal();
+            }
+            irA('ventas');
         }
 
         // ══════════════════════════════════════════════════════════════
@@ -867,16 +1474,32 @@
         async function ejecutarConsultaOdoo() {
             const fecha = document.getElementById("filtroFecha").value;
             const cuerpo = document.getElementById("tablaVentasCuerpo");
-            cuerpo.innerHTML = `<tr><td colspan="4" class="text-center p-6 text-slate-400 font-medium">Consultando Odoo POS...</td></tr>`;
+            const claveCache = `ventas_${fecha}_${SESION_USUARIO?.id ?? 'anon'}`;
+
+            const cache = _leerCache(claveCache);
+            if (cache) {
+                BASE_DATOS_VENTAS = cache.datos;
+                filtrarPorLocal();
+                _marcarActualizando("ventasActualizando", true);
+            } else {
+                cuerpo.innerHTML = `<tr><td colspan="4" class="text-center p-6 text-slate-400 font-medium">Consultando Odoo POS...</td></tr>`;
+            }
 
             try {
                 const response = await fetch(`/api/ventas?fecha=${fecha}`);
                 if (response.status === 401) { mostrarLogin(); return; }
                 if (!response.ok) throw new Error("http-error");
                 BASE_DATOS_VENTAS = await response.json();
+                _guardarCache(claveCache, BASE_DATOS_VENTAS);
                 filtrarPorLocal();
             } catch (e) {
-                cuerpo.innerHTML = `<tr><td colspan="4" class="text-center p-6 text-rose-600 font-medium">⚠️ Error de conexión con el servidor POS.</td></tr>`;
+                if (!cache) {
+                    cuerpo.innerHTML = `<tr><td colspan="4" class="text-center p-6 text-rose-600 font-medium">${_ICONO_ALERTA} Error de conexión con el servidor POS.</td></tr>`;
+                } else {
+                    mostrarToast("No se pudo actualizar — mostrando los últimos datos guardados.", 'error');
+                }
+            } finally {
+                _marcarActualizando("ventasActualizando", false);
             }
         }
 
@@ -894,9 +1517,10 @@
             sincronizarEstadoFormularioCierre();
             sincronizarEstadoReporteDiario();
             sincronizarBaseApertura();
-            // Si el admin está viendo KPIs y cambia de tienda en el header, refrescamos
-            // (solo cuando la pantalla está visible, para no gastar consultas de más).
+            // Si el admin está viendo KPIs/Cierre y cambia de tienda en el header,
+            // refrescamos (solo cuando la pantalla está visible).
             if (!document.getElementById("pantallaKPIs").classList.contains("hidden")) cargarKPIs();
+            if (!document.getElementById("pantallaCierre").classList.contains("hidden")) cargarGraficoCuadre();
         }
 
         // ══════════════════════════════════════════════════════════════
@@ -912,12 +1536,22 @@
             const [anio, mes] = inputMes.value.split('-').map(Number);
 
             let url = `/api/kpis?anio=${anio}&mes=${mes}`;
-            if (SESION_USUARIO && SESION_USUARIO.rol === 'admin') {
-                url += `&tienda=${encodeURIComponent(document.getElementById("selectorTienda").value)}`;
+            let tiendaParam = '';
+            if (SESION_USUARIO && SESION_USUARIO.rol === 'superadmin') {
+                tiendaParam = document.getElementById("selectorTienda").value;
+                url += `&tienda=${encodeURIComponent(tiendaParam)}`;
             }
+            const claveCache = `kpis_${anio}_${mes}_${tiendaParam || SESION_USUARIO?.id || 'na'}`;
 
             const errorEl = document.getElementById("kpiError");
             errorEl.classList.add("hidden");
+
+            const cache = _leerCache(claveCache);
+            if (cache) {
+                KPI_ACTUAL = cache.datos;
+                _renderizarKPIs(KPI_ACTUAL, anio);
+                _marcarActualizando("kpiActualizando", true);
+            }
 
             try {
                 const resp = await fetch(url);
@@ -927,32 +1561,58 @@
                     throw new Error(err.detail || "No se pudieron cargar los KPIs.");
                 }
                 KPI_ACTUAL = await resp.json();
-
-                document.getElementById("kpiVentasHoy").innerText = `$${KPI_ACTUAL.ventas_hoy.toFixed(2)}`;
-
-                const barra = document.getElementById("kpiBarraProgreso");
-                const pctEl = document.getElementById("kpiProgresoPct");
-                const detalleMeta = document.getElementById("kpiMetaMensual");
-                if (KPI_ACTUAL.progreso_pct === null) {
-                    barra.style.width = "0%";
-                    pctEl.innerText = "—";
-                    detalleMeta.innerText = "Sin meta configurada para este mes.";
-                } else {
-                    const pct = KPI_ACTUAL.progreso_pct;
-                    barra.style.width = `${Math.min(pct, 100)}%`;
-                    barra.className = `h-2 rounded-full ${pct >= 100 ? 'bg-emerald-500' : pct >= 50 ? 'bg-amber-500' : 'bg-rose-500'}`;
-                    pctEl.innerText = `${pct}%`;
-                    detalleMeta.innerText = `$${KPI_ACTUAL.ventas_mes_actual.toFixed(2)} de $${KPI_ACTUAL.meta_mensual.toFixed(2)}`;
-                }
-
-                document.getElementById("btnEditarMeta").classList.toggle("hidden", !(SESION_USUARIO && SESION_USUARIO.rol === 'admin'));
-
-                dibujarGraficoKPI(KPI_ACTUAL.serie_diaria);
-                dibujarVendedoras(KPI_ACTUAL.vendedoras);
+                _guardarCache(claveCache, KPI_ACTUAL);
+                _renderizarKPIs(KPI_ACTUAL, anio);
             } catch (e) {
-                errorEl.innerText = `⚠️ ${e.message}`;
-                errorEl.classList.remove("hidden");
+                if (!cache) {
+                    errorEl.innerHTML = `<svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4 22 20.5H2L12 4Z"/><line x1="12" y1="10" x2="12" y2="14.5"/><circle cx="12" cy="17.2" r="0.7" fill="currentColor" stroke="none"/></svg> ${e.message}`;
+                    errorEl.classList.remove("hidden");
+                } else {
+                    mostrarToast("No se pudieron actualizar los KPIs — mostrando los últimos datos guardados.", 'error');
+                }
+            } finally {
+                _marcarActualizando("kpiActualizando", false);
             }
+        }
+
+        function _renderizarKPIs(datos, anio) {
+            document.getElementById("kpiVentasHoy").innerText = `$${datos.ventas_hoy.toFixed(2)}`;
+
+            const barra = document.getElementById("kpiBarraProgreso");
+            const pctEl = document.getElementById("kpiProgresoPct");
+            const detalleMeta = document.getElementById("kpiMetaMensual");
+            if (datos.progreso_pct === null) {
+                barra.style.width = "0%";
+                pctEl.innerText = "—";
+                detalleMeta.innerText = "Sin meta configurada para este mes.";
+            } else {
+                const pct = datos.progreso_pct;
+                barra.style.width = `${Math.min(pct, 100)}%`;
+                barra.className = `h-2 rounded-full ${pct >= 100 ? 'bg-emerald-500' : pct >= 50 ? 'bg-amber-500' : 'bg-rose-500'}`;
+                pctEl.innerText = `${pct}%`;
+                detalleMeta.innerText = `$${datos.ventas_mes_actual.toFixed(2)} de $${datos.meta_mensual.toFixed(2)}`;
+            }
+
+            document.getElementById("btnEditarMeta").classList.toggle("hidden", !(SESION_USUARIO && SESION_USUARIO.rol === 'superadmin'));
+
+            const variacionEl = document.getElementById("kpiVariacionAnual");
+            const variacionDetalleEl = document.getElementById("kpiVariacionAnualDetalle");
+            if (datos.variacion_anual_pct === null || datos.variacion_anual_pct === undefined) {
+                variacionEl.innerText = "—";
+                variacionEl.className = "text-2xl font-bold text-slate-800 mt-1";
+                variacionDetalleEl.innerText = datos.ventas_mismo_mes_anio_anterior > 0
+                    ? "Sin datos suficientes para comparar."
+                    : `Sin ventas registradas en ${anio - 1} para este mes.`;
+            } else {
+                const variacion = datos.variacion_anual_pct;
+                const subio = variacion >= 0;
+                variacionEl.innerText = `${subio ? '▲' : '▼'} ${Math.abs(variacion)}%`;
+                variacionEl.className = `text-2xl font-bold mt-1 ${subio ? 'text-emerald-600' : 'text-rose-600'}`;
+                variacionDetalleEl.innerText = `$${datos.ventas_mismo_mes_anio_anterior.toFixed(2)} en ${anio - 1}`;
+            }
+
+            dibujarGraficoKPI(datos.serie_diaria);
+            dibujarVendedoras(datos.vendedoras);
         }
 
         // Línea simple en SVG, sin librerías externas — coherente con el resto
@@ -974,8 +1634,12 @@
 
             const puntoX = (i) => (i / (serie.length - 1 || 1)) * (ancho - 20) + 10;
             const puntoY = (v) => margenSuperior + alturaGrafico - (v / maxValor) * alturaGrafico;
+            const baseY = margenSuperior + alturaGrafico;
 
             const trazo = (campo) => serie.map((d, i) => `${i === 0 ? 'M' : 'L'}${puntoX(i).toFixed(1)},${puntoY(d[campo]).toFixed(1)}`).join(' ');
+            // Mismo trazo que la línea de "este mes", pero cerrado hacia abajo
+            // hasta la base — para rellenar con el degradado por debajo.
+            const trazoArea = `${trazo('actual')} L${puntoX(serie.length - 1).toFixed(1)},${baseY} L${puntoX(0).toFixed(1)},${baseY} Z`;
 
             const etiquetas = serie.map((d, i) => {
                 const mostrar = serie.length <= 15 || d.dia === 1 || d.dia === serie.length || d.dia % 5 === 0;
@@ -985,7 +1649,8 @@
 
             // Un punto (oculto hasta el hover) por serie y por día, más una
             // franja invisible por día que capta el mouse en toda su altura
-            // — así no hay que acertarle justo al pixel de la línea.
+            // — así no hay que acertarle justo al pixel de la línea. Clickeable:
+            // lleva a Monitoreo de Órdenes con la fecha de ese día ya puesta.
             const anchoZona = (ancho - 20) / (serie.length - 1 || 1);
             const puntosInteractivos = serie.map((d, i) => {
                 const x = puntoX(i).toFixed(1);
@@ -993,7 +1658,7 @@
                     <circle cx="${x}" cy="${puntoY(d.actual).toFixed(1)}" r="3.5" fill="#10b981" class="kpi-punto" data-dia="${i}" data-serie="actual" opacity="0"></circle>
                     <circle cx="${x}" cy="${puntoY(d.anterior).toFixed(1)}" r="3.5" fill="#94a3b8" class="kpi-punto" data-dia="${i}" data-serie="anterior" opacity="0"></circle>
                     <rect x="${(puntoX(i) - anchoZona / 2).toFixed(1)}" y="0" width="${anchoZona.toFixed(1)}" height="${alto}" fill="transparent"
-                        onmouseenter="mostrarTooltipKPI(event, ${i})" onmouseleave="ocultarTooltipKPI()" style="cursor: crosshair"></rect>
+                        onmouseenter="mostrarTooltipKPI(event, ${i})" onmouseleave="ocultarTooltipKPI()" onclick="irAKpiDia(${d.dia})" style="cursor: pointer"></rect>
                 `;
             }).join('');
 
@@ -1001,10 +1666,18 @@
                 <div class="flex items-center gap-4 mb-2 text-[11px] text-slate-600">
                     <span class="flex items-center gap-1"><span class="w-3 h-0.5 bg-emerald-500 inline-block"></span> Este mes</span>
                     <span class="flex items-center gap-1"><span class="w-3 h-0.5 bg-slate-300 inline-block"></span> Mes anterior</span>
+                    <span class="text-slate-400 ml-auto">Click en un día para ver sus órdenes →</span>
                 </div>
                 <svg width="${ancho}" height="${alto}" viewBox="0 0 ${ancho} ${alto}" class="block" id="kpiSvgGrafico">
+                    <defs>
+                        <linearGradient id="kpiGradienteArea" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stop-color="#10b981" stop-opacity="0.28"/>
+                            <stop offset="100%" stop-color="#10b981" stop-opacity="0"/>
+                        </linearGradient>
+                    </defs>
+                    <path d="${trazoArea}" fill="url(#kpiGradienteArea)" stroke="none"></path>
                     <path d="${trazo('anterior')}" fill="none" stroke="#cbd5e1" stroke-width="2"/>
-                    <path d="${trazo('actual')}" fill="none" stroke="#10b981" stroke-width="2.5"/>
+                    <path id="kpiTrazoActual" d="${trazo('actual')}" fill="none" stroke="#10b981" stroke-width="2.5"/>
                     <line id="kpiLineaGuia" x1="0" y1="0" x2="0" y2="${alto}" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="3,3" opacity="0"></line>
                     ${etiquetas}
                     ${puntosInteractivos}
@@ -1012,6 +1685,32 @@
             `;
 
             _KPI_SERIE_ACTUAL = serie;
+
+            // Animación de "dibujado": la línea de este mes se traza de
+            // izquierda a derecha en vez de aparecer de golpe.
+            const trazoEl = document.getElementById("kpiTrazoActual");
+            if (trazoEl) {
+                const largo = trazoEl.getTotalLength();
+                trazoEl.style.transition = 'none';
+                trazoEl.style.strokeDasharray = `${largo}`;
+                trazoEl.style.strokeDashoffset = `${largo}`;
+                requestAnimationFrame(() => {
+                    trazoEl.style.transition = 'stroke-dashoffset 900ms ease-out';
+                    trazoEl.style.strokeDashoffset = '0';
+                });
+            }
+        }
+
+        // Click en un punto del gráfico de KPIs: va a Monitoreo de Órdenes con
+        // la fecha de ese día del mes que se está viendo en el gráfico.
+        function irAKpiDia(dia) {
+            const inputMes = document.getElementById("kpiMes");
+            if (!inputMes.value) return;
+            const [anio, mes] = inputMes.value.split('-').map(Number);
+            const fecha = `${anio}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+            document.getElementById("filtroFecha").value = fecha;
+            irA('ventas');
+            ejecutarConsultaOdoo();
         }
 
         // Al pasar el mouse por un día: resalta los 2 puntos de ese día, mueve
@@ -1062,6 +1761,63 @@
             document.getElementById("kpiTooltip").classList.add("hidden");
         }
 
+        const _COLOR_METODO_CUADRE = {
+            'Caja': '#059669', 'Cheque': '#d97706', 'Transferencia': '#2563eb',
+            'Tarjeta': '#7c3aed', 'Cuenta de cliente': '#64748b', 'Giftcard': '#db2777',
+        };
+
+        // Dona con la proporción de cada método de pago del día — se ve apenas
+        // se entra a Cierre de Caja, antes de imprimir, para tener una vista
+        // rápida de cómo se compone la venta del día.
+        async function cargarGraficoCuadre() {
+            const cont = document.getElementById("cuadreGraficoContenedor");
+            const fecha = document.getElementById("filtroFecha").value;
+            const tienda = document.getElementById("cierreTiendaNombre").value;
+            if (!cont || !fecha || !tienda) { if (cont) cont.classList.add("hidden"); return; }
+
+            let url = `/api/reporte-cuadre?fecha=${encodeURIComponent(fecha)}`;
+            if (SESION_USUARIO && (SESION_USUARIO.rol === 'admin' || SESION_USUARIO.rol === 'superadmin')) url += `&tienda=${encodeURIComponent(tienda)}`;
+
+            try {
+                const resp = await fetch(url);
+                if (!resp.ok) { cont.classList.add("hidden"); return; }
+                const datos = await resp.json();
+                const conMonto = (datos.por_metodo || []).filter(m => m.monto > 0);
+                if (conMonto.length === 0) { cont.classList.add("hidden"); return; }
+
+                const total = conMonto.reduce((acc, m) => acc + m.monto, 0);
+                const radio = 46, grosor = 18, circunferencia = 2 * Math.PI * radio;
+                let acumulado = 0;
+                const segmentos = conMonto.map(m => {
+                    const frac = m.monto / total;
+                    const largo = frac * circunferencia;
+                    const offset = -acumulado * circunferencia;
+                    acumulado += frac;
+                    const color = _COLOR_METODO_CUADRE[m.metodo] || '#94a3b8';
+                    return `<circle cx="60" cy="60" r="${radio}" fill="none" stroke="${color}" stroke-width="${grosor}"
+                        stroke-dasharray="${largo.toFixed(1)} ${(circunferencia - largo).toFixed(1)}" stroke-dashoffset="${offset.toFixed(1)}" transform="rotate(-90 60 60)"></circle>`;
+                }).join('');
+
+                const leyenda = conMonto.map(m => `
+                    <div class="flex items-center justify-between gap-2 text-xs py-0.5">
+                        <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:${_COLOR_METODO_CUADRE[m.metodo] || '#94a3b8'}"></span>${m.metodo}</span>
+                        <span class="font-semibold text-slate-700">$${m.monto.toFixed(2)} <span class="text-slate-400 font-normal">(${Math.round(m.monto / total * 100)}%)</span></span>
+                    </div>`).join('');
+
+                cont.classList.remove("hidden");
+                cont.innerHTML = `
+                    <h4 class="text-xs font-bold text-slate-700 uppercase mb-2">Cuadre de hoy por método de pago</h4>
+                    <div class="flex items-center gap-4 flex-wrap">
+                        <svg width="120" height="120" viewBox="0 0 120 120">${segmentos}
+                            <text x="60" y="56" font-size="9" fill="#94a3b8" text-anchor="middle">TOTAL</text>
+                            <text x="60" y="70" font-size="12" font-weight="bold" fill="#0f172a" text-anchor="middle">$${total.toFixed(0)}</text>
+                        </svg>
+                        <div class="flex-1 min-w-[160px]">${leyenda}</div>
+                    </div>
+                `;
+            } catch (e) { cont.classList.add("hidden"); }
+        }
+
         // ══════════════════════════════════════════════════════════════
         // REPORTE DE CUADRE DE CAJA — suma de ventas por método de pago
         // (efectivo, tarjeta, etc.) para reconciliar la caja física.
@@ -1085,7 +1841,7 @@
             );
 
             let url = `/api/reporte-cuadre?fecha=${encodeURIComponent(fecha)}`;
-            if (SESION_USUARIO && SESION_USUARIO.rol === 'admin') url += `&tienda=${encodeURIComponent(tienda)}`;
+            if (SESION_USUARIO && (SESION_USUARIO.rol === 'admin' || SESION_USUARIO.rol === 'superadmin')) url += `&tienda=${encodeURIComponent(tienda)}`;
 
             try {
                 const resp = await fetch(url);
@@ -1151,7 +1907,7 @@
                 const observacionesEscapadas = observaciones.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
                 const seccionObservaciones = observaciones ? `
                         <div style="margin-top:14px; padding:8px 10px; background:#fffbeb; border:1px solid #fde68a; border-radius:6px;">
-                            <div style="font-weight:bold; font-size:12px; margin-bottom:3px;">📝 Observaciones</div>
+                            <div style="font-weight:bold; font-size:12px; margin-bottom:3px;">Observaciones</div>
                             <div style="font-size:12px; white-space:pre-line;">${observacionesEscapadas}</div>
                         </div>` : '';
 
@@ -1241,7 +1997,7 @@
                 });
                 const datos = await resp.json();
                 if (!resp.ok) throw new Error(datos.detail || "No se pudo guardar la meta.");
-                await mostrarAviso("Meta mensual actualizada.", 'bg-emerald-600');
+                mostrarToast("Meta mensual actualizada.");
                 cargarKPIs();
             } catch (e) {
                 await mostrarAviso("Error: " + e.message);
@@ -1277,7 +2033,7 @@
                 const datos = resp.ok ? await resp.json() : { enviado: false };
                 if (datos.enviado) {
                     btn.disabled = true;
-                    btn.innerHTML = "<span>✅ Reporte ya enviado para este día</span>";
+                    btn.innerHTML = `<span class="inline-flex items-center gap-1.5">${_ICONO_CHECK}Reporte ya enviado para este día</span>`;
                     btn.classList.add("opacity-60", "cursor-not-allowed");
                 } else {
                     btn.disabled = false;
@@ -1302,7 +2058,7 @@
                 input.disabled = !!datos.solo_lectura;
                 input.classList.toggle("bg-slate-100", !!datos.solo_lectura);
                 input.classList.toggle("cursor-not-allowed", !!datos.solo_lectura);
-                estado.innerText = datos.solo_lectura ? "🔒 Congelada" : "";
+                estado.innerText = datos.solo_lectura ? "Congelada" : "";
             } catch (e) { /* silencioso */ }
         }
 
@@ -1328,8 +2084,8 @@
                     const err = await resp.json().catch(() => ({}));
                     throw new Error(err.detail || "No se pudo guardar la base de apertura.");
                 }
-                estado.innerText = "✅ Guardada";
-                setTimeout(() => { if (estado.innerText === "✅ Guardada") estado.innerText = ""; }, 2000);
+                estado.innerText = "Guardada";
+                setTimeout(() => { if (estado.innerText === "Guardada") estado.innerText = ""; }, 2000);
             } catch (e) {
                 await mostrarAviso("Error: " + e.message);
                 sincronizarBaseApertura();
@@ -1375,7 +2131,7 @@
                         <td class="px-4 py-3 text-xs font-medium text-slate-500">${item.tienda}</td>
                         <td class="px-4 py-3 text-right font-bold text-slate-800">$${item.total_venta.toFixed(2)}</td>
                         <td class="px-4 py-3 text-center">
-                            <button onclick="verDetalleVenta('${item.orden_id}')" class="bg-slate-800 hover:bg-slate-950 text-white text-[11px] font-medium px-3 py-1.5 rounded-lg shadow-sm hover:shadow transition-all duration-150">🔍 Ver detalles</button>
+                            <button onclick="verDetalleVenta('${item.orden_id}')" class="bg-slate-800 hover:bg-slate-950 text-white text-[11px] font-medium px-3 py-1.5 rounded-lg shadow-sm hover:shadow transition-all duration-150 inline-flex items-center gap-1">${_ICONO_LUPA}Ver detalles</button>
                         </td>
                     </tr>
                 `;
@@ -1426,7 +2182,7 @@
                 if(urlImg) {
                     contenedorImg.innerHTML = `
                         <div class="mt-5 pt-4 border-t border-slate-100 bg-slate-50/50 rounded-xl p-3">
-                            <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">📸 Comprobante Digital adjunto</span>
+                            <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1">${_ICONO_CAMARA}Comprobante Digital adjunto</span>
                             <a href="${urlImg}" target="_blank" class="block border border-slate-200 rounded-lg overflow-hidden bg-white hover:border-slate-300 transition-all shadow-sm group">
                                 <img src="${urlMiniaturaDrive(urlImg)}" alt="Comprobante" class="max-h-44 mx-auto object-contain p-1 group-hover:scale-[1.02] transition-transform duration-200"/>
                             </a>
@@ -1679,6 +2435,28 @@
             document.getElementById("btnMenuHamburguesa").setAttribute("aria-expanded", "false");
         }
 
+        // Los grupos del menú (Ventas, Tienda, Finanzas, Administración) se
+        // abren solos al pasar el mouse por encima, y se cierran solos al
+        // pasar a otro — como un menú de verdad, no hace falta hacer clic.
+        // En celular (sin "pasar el mouse") el toque en el título también
+        // abre el grupo — a propósito NUNCA lo cierra por sí solo (si lo
+        // hiciera, en mouse el toggle nativo del clic pelearía con el hover
+        // que ya lo había abierto un instante antes, y el grupo ni se abría).
+        (function configurarNavPorHover() {
+            const grupos = document.querySelectorAll('#navPrincipal details[data-grupo-nav]');
+            const abrirYCerrarOtros = (grupo) => {
+                grupos.forEach((otro) => { if (otro !== grupo) otro.open = false; });
+                grupo.open = true;
+            };
+            grupos.forEach((grupo) => {
+                grupo.addEventListener('mouseenter', () => abrirYCerrarOtros(grupo));
+                grupo.querySelector('summary').addEventListener('click', (e) => {
+                    e.preventDefault();
+                    abrirYCerrarOtros(grupo);
+                });
+            });
+        })();
+
         // Atajo para las opciones del menú: navega y lo cierra.
         function irA(pantalla) {
             cambiarPantalla(pantalla);
@@ -1686,23 +2464,613 @@
         }
 
         function cambiarPantalla(pantalla) {
-            if ((pantalla === 'historial' || pantalla === 'usuarios' || pantalla === 'metas' || pantalla === 'comisiones') && SESION_USUARIO?.rol !== 'admin') return;
+            const rolActual = SESION_USUARIO?.rol;
+            const pantallasAdminOSuperior = ['historial', 'usuarios', 'metas'];
+            const pantallasSoloSuperAdmin = ['comisiones', 'auditoria', 'reporteEjecutivo', 'roles'];
+            if (pantallasAdminOSuperior.includes(pantalla) && rolActual !== 'admin' && rolActual !== 'superadmin') return;
+            if (pantallasSoloSuperAdmin.includes(pantalla) && rolActual !== 'superadmin') return;
+            if (pantalla === 'kpis' && rolActual === 'admin') return;
 
-            const pantallas = { ventas: 'pantallaVentas', kpis: 'pantallaKPIs', cierre: 'pantallaCierre', historial: 'pantallaHistorial', metas: 'pantallaMetas', comisiones: 'pantallaComisiones', usuarios: 'pantallaUsuarios' };
+            const pantallas = { dashboard: 'pantallaDashboard', ventas: 'pantallaVentas', kpis: 'pantallaKPIs', cierre: 'pantallaCierre', historial: 'pantallaHistorial', metas: 'pantallaMetas', comisiones: 'pantallaComisiones', usuarios: 'pantallaUsuarios', auditoria: 'pantallaAuditoria', reporteEjecutivo: 'pantallaReporteEjecutivo', roles: 'pantallaRoles', tareas: 'pantallaTareas' };
             Object.entries(pantallas).forEach(([key, id]) => {
                 document.getElementById(id).classList.toggle("hidden", key !== pantalla);
+            });
+
+            // Resalta en el menú lateral en qué pantalla está parado ahora
+            // mismo — antes ningún ítem del menú indicaba dónde estabas.
+            document.querySelectorAll('#navPrincipal [data-pantalla]').forEach((btn) => {
+                const activo = btn.dataset.pantalla === pantalla;
+                btn.classList.toggle('bg-blue-50', activo);
+                btn.classList.toggle('text-blue-700', activo);
+                btn.classList.toggle('text-slate-700', !activo && !btn.disabled);
+                const icono = btn.querySelector('svg.icono');
+                if (icono) {
+                    icono.classList.toggle('text-blue-500', activo);
+                    icono.classList.toggle('text-slate-400', !activo && !btn.disabled);
+                }
+                // El grupo que contiene la pantalla activa queda abierto; los
+                // demás se cierran — así el menú siempre muestra dónde estás.
+                const grupoPadre = btn.closest('details[data-grupo-nav]');
+                if (activo && grupoPadre) grupoPadre.open = true;
             });
 
             // Recordamos en qué pantalla estaba para que un refresh (F5) la
             // mantenga en vez de siempre volver a Órdenes del Día.
             try { sessionStorage.setItem("socia_pantalla_actual", pantalla); } catch (e) { /* modo privado, etc. */ }
 
+            if (pantalla === 'dashboard') cargarDashboard();
             if (pantalla === 'kpis') cargarKPIs();
+            if (pantalla === 'cierre') cargarGraficoCuadre();
             if (pantalla === 'historial') cargarHistorialCierres();
             if (pantalla === 'metas') cargarMetasMensuales();
             if (pantalla === 'comisiones') inicializarPantallaComisiones();
             if (pantalla === 'usuarios') cargarUsuarios();
+            if (pantalla === 'auditoria') cargarAuditoria();
+            if (pantalla === 'reporteEjecutivo') {
+                const inputMes = document.getElementById("reporteEjecutivoMes");
+                if (!inputMes.value) {
+                    const hoy = new Date();
+                    inputMes.value = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
+                }
+            }
+            if (pantalla === 'roles') cargarRoles();
+            if (pantalla === 'tareas') cargarTareas();
         }
+
+        // ══════════════════════════════════════════════════════════════
+        // REPORTE EJECUTIVO MENSUAL (PDF, solo admin)
+        // ══════════════════════════════════════════════════════════════
+        async function generarReporteEjecutivoPDF() {
+            const inputMes = document.getElementById("reporteEjecutivoMes");
+            const [anio, mes] = inputMes.value.split('-').map(Number);
+            const btn = document.getElementById("btnGenerarReporteEjecutivo");
+            const errorEl = document.getElementById("reporteEjecutivoError");
+            errorEl.classList.add("hidden");
+            btn.disabled = true;
+            btn.innerText = "Generando...";
+            try {
+                const resp = await fetch(`/api/reporte-ejecutivo/pdf?anio=${anio}&mes=${mes}`);
+                if (resp.status === 401) { mostrarLogin(); return; }
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    throw new Error(err.detail || "No se pudo generar el reporte.");
+                }
+                const blob = await resp.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `reporte-ejecutivo-${inputMes.value}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+            } catch (e) {
+                errorEl.innerHTML = `<svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4 22 20.5H2L12 4Z"/><line x1="12" y1="10" x2="12" y2="14.5"/><circle cx="12" cy="17.2" r="0.7" fill="currentColor" stroke="none"/></svg> ${e.message}`;
+                errorEl.classList.remove("hidden");
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<svg class="icono" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5v11"/><path d="M8 10.5l4 4 4-4"/><path d="M4.5 17.5V19a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5v-1.5"/></svg>Generar PDF';
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // ROLES (solo superadmin) — reusa GET /api/usuarios (ya trae rol,
+        // tienda, activo) y solo agrega la acción de cambiar el rol.
+        // ══════════════════════════════════════════════════════════════
+        const ETIQUETAS_ROL = { superadmin: 'Superadmin', admin: 'Admin', usuario: 'Usuario' };
+
+        async function cargarRoles() {
+            const cuerpo = document.getElementById("tablaRolesCuerpo");
+            cuerpo.innerHTML = `<tr><td colspan="5" class="text-center py-6 text-slate-400">Cargando...</td></tr>`;
+            try {
+                const resp = await fetch("/api/usuarios");
+                if (resp.status === 401) { mostrarLogin(); return; }
+                if (resp.status === 403) {
+                    cuerpo.innerHTML = `<tr><td colspan="5" class="text-center py-6 text-slate-400">Este módulo es exclusivo del superadministrador.</td></tr>`;
+                    return;
+                }
+                if (!resp.ok) throw new Error("No se pudo cargar la lista de usuarios.");
+                const usuarios = await resp.json();
+                if (usuarios.length === 0) {
+                    cuerpo.innerHTML = `<tr><td colspan="5" class="text-center py-6 text-slate-400">No hay usuarios registrados todavía.</td></tr>`;
+                    return;
+                }
+                cuerpo.innerHTML = usuarios.map(u => `
+                    <tr class="border-b border-slate-100 hover:bg-slate-50 text-xs">
+                        <td class="px-4 py-3 font-semibold text-slate-900">${u.nombre}</td>
+                        <td class="px-4 py-3 text-slate-600">${u.email}</td>
+                        <td class="px-4 py-3 text-slate-600">${u.tienda || (u.rol !== 'usuario' ? '— (ve todo)' : 'Sin asignar')}</td>
+                        <td class="px-4 py-3">${u.rol === 'superadmin' ? '<span class="bg-blue-50 text-blue-700 ring-1 ring-blue-600/10 text-[11px] px-2 py-0.5 rounded-md font-semibold">Superadmin</span>' : u.rol === 'admin' ? '<span class="bg-slate-100 text-slate-600 ring-1 ring-slate-400/10 text-[11px] px-2 py-0.5 rounded-md font-semibold">Admin</span>' : 'Usuario'}</td>
+                        <td class="px-4 py-3">
+                            <div class="flex items-center gap-1.5">
+                                <select id="rolNuevo_${u.id}" class="border p-1.5 rounded text-xs">
+                                    <option value="usuario" ${u.rol === 'usuario' ? 'selected' : ''}>Usuario</option>
+                                    <option value="admin" ${u.rol === 'admin' ? 'selected' : ''}>Admin</option>
+                                    <option value="superadmin" ${u.rol === 'superadmin' ? 'selected' : ''}>Superadmin</option>
+                                </select>
+                                <button onclick="guardarCambioRol(${u.id}, '${(u.nombre || '').replace(/'/g, "\\'")}', '${u.rol}')" class="bg-slate-800 hover:bg-slate-950 text-white text-[11px] font-semibold px-2.5 py-1.5 rounded-md whitespace-nowrap">Guardar</button>
+                            </div>
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (e) {
+                cuerpo.innerHTML = `<tr><td colspan="5" class="text-center py-6 text-rose-600 font-medium"><svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4 22 20.5H2L12 4Z"/><line x1="12" y1="10" x2="12" y2="14.5"/><circle cx="12" cy="17.2" r="0.7" fill="currentColor" stroke="none"/></svg> ${e.message}</td></tr>`;
+            }
+        }
+
+        async function guardarCambioRol(usuarioId, nombre, rolActual) {
+            const select = document.getElementById(`rolNuevo_${usuarioId}`);
+            const nuevoRol = select.value;
+            if (nuevoRol === rolActual) return;
+
+            const esYoMismo = SESION_USUARIO && SESION_USUARIO.id === usuarioId;
+            const confirmado = await mostrarConfirmacion(
+                `¿Cambiar el rol de "${nombre}" de ${ETIQUETAS_ROL[rolActual]} a ${ETIQUETAS_ROL[nuevoRol]}?` +
+                (esYoMismo ? " Es tu propio usuario — vas a tener que volver a iniciar sesión." : " Va a tener que volver a iniciar sesión."),
+                { textoAceptar: 'Cambiar rol' }
+            );
+            if (!confirmado) { select.value = rolActual; return; }
+
+            try {
+                const resp = await fetch(`/api/usuarios/${usuarioId}/rol`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ rol: nuevoRol })
+                });
+                const datos = await resp.json();
+                if (!resp.ok) throw new Error(datos.detail || "No se pudo cambiar el rol.");
+                mostrarToast(`Rol de "${nombre}" actualizado a ${ETIQUETAS_ROL[nuevoRol]}.`);
+                if (esYoMismo) {
+                    // Se le acaba de borrar su propia sesión — recarga para
+                    // volver a la pantalla de login en vez de quedar "vivo"
+                    // con permisos viejos hasta el próximo request fallido.
+                    window.location.reload();
+                    return;
+                }
+                cargarRoles();
+            } catch (err) {
+                await mostrarAviso("Error: " + err.message);
+                select.value = rolActual;
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // TAREAS — se asignan en Odoo (a la tienda); acá se trackea el
+        // avance (pendiente/en progreso/completada) y la revisión del
+        // superadmin. Todos los roles ven esta pantalla: el usuario de
+        // tienda actualiza las suyas, admin/superadmin ven todas y el
+        // superadmin además puede marcarlas como revisadas.
+        // ══════════════════════════════════════════════════════════════
+        let TAREAS_MEMORIA = [];
+        const ETIQUETAS_ESTADO_TAREA = { pendiente: 'Pendiente', en_progreso: 'En progreso', completada: 'Completada' };
+        const COLOR_ESTADO_TAREA = {
+            pendiente: 'bg-slate-100 text-slate-600',
+            en_progreso: 'bg-amber-50 text-amber-700',
+            completada: 'bg-emerald-50 text-emerald-700',
+        };
+
+        async function cargarTareas() {
+            const cont = document.getElementById("tareasContenedor");
+            cont.innerHTML = `<p class="text-slate-400 text-sm italic text-center py-8">Sincronizando con Odoo...</p>`;
+            try {
+                const resp = await fetch("/api/tareas");
+                if (resp.status === 401) { mostrarLogin(); return; }
+                if (!resp.ok) throw new Error("No se pudieron cargar las tareas.");
+                TAREAS_MEMORIA = await resp.json();
+
+                const esAdminOSuperior = SESION_USUARIO && (SESION_USUARIO.rol === 'admin' || SESION_USUARIO.rol === 'superadmin');
+                const selectorTiendaTareas = document.getElementById("filtroTareasTienda");
+                if (esAdminOSuperior) {
+                    const tiendas = [...new Set(TAREAS_MEMORIA.map(t => t.tienda).filter(Boolean))].sort();
+                    selectorTiendaTareas.innerHTML = `<option value="">Todas las tiendas</option>` + tiendas.map(t => `<option value="${t}">${t}</option>`).join('');
+                    selectorTiendaTareas.classList.remove("hidden");
+                } else {
+                    selectorTiendaTareas.classList.add("hidden");
+                }
+
+                renderizarTareas();
+                actualizarBadgeTareas();
+            } catch (e) {
+                cont.innerHTML = `<p class="text-rose-600 text-sm text-center py-8 flex items-center justify-center gap-1.5">${_ICONO_ALERTA}${e.message}</p>`;
+            }
+        }
+
+        function renderizarTareas() {
+            const cont = document.getElementById("tareasContenedor");
+            const filtroEstado = document.getElementById("filtroTareasEstado").value;
+            const filtroTienda = document.getElementById("filtroTareasTienda").value;
+
+            let lista = TAREAS_MEMORIA;
+            if (filtroEstado) lista = lista.filter(t => t.estado === filtroEstado);
+            if (filtroTienda) lista = lista.filter(t => t.tienda === filtroTienda);
+
+            if (TAREAS_MEMORIA.length === 0) {
+                cont.innerHTML = `<p class="text-slate-400 text-sm italic text-center py-8">No hay tareas asignadas todavía — se asignan desde el módulo de Tareas en Odoo.</p>`;
+                return;
+            }
+            if (lista.length === 0) {
+                cont.innerHTML = `<p class="text-slate-400 text-sm italic text-center py-8">Ninguna tarea coincide con el filtro.</p>`;
+                return;
+            }
+
+            const esUsuario = SESION_USUARIO && SESION_USUARIO.rol === 'usuario';
+            const esSuperAdmin = SESION_USUARIO && SESION_USUARIO.rol === 'superadmin';
+            const esAdminOSuperior = esSuperAdmin || (SESION_USUARIO && SESION_USUARIO.rol === 'admin');
+
+            cont.innerHTML = lista.map(t => {
+                const estadoBadge = `<span class="${COLOR_ESTADO_TAREA[t.estado]} text-[11px] px-2 py-0.5 rounded-md font-semibold">${ETIQUETAS_ESTADO_TAREA[t.estado]}</span>`;
+                const revisionBadge = t.estado === 'completada'
+                    ? (t.revisado_por_admin
+                        ? `<span class="bg-blue-50 text-blue-700 text-[11px] px-2 py-0.5 rounded-md font-semibold inline-flex items-center gap-1">${_ICONO_ESCUDO_CHECK}Revisada</span>`
+                        : `<span class="bg-amber-50 text-amber-700 text-[11px] px-2 py-0.5 rounded-md font-semibold">Por revisar</span>`)
+                    : '';
+
+                return `
+                    <div class="border border-slate-200 rounded-xl p-4">
+                        <div class="flex justify-between items-start gap-3 flex-wrap mb-2">
+                            <div>
+                                <h4 class="font-semibold text-slate-800 text-sm">${t.titulo}</h4>
+                                ${esAdminOSuperior ? `<p class="text-[11px] text-slate-400 mt-0.5">${t.tienda || 'Sin tienda'}</p>` : ''}
+                            </div>
+                            <div class="flex items-center gap-1.5 flex-wrap">${estadoBadge}${revisionBadge}</div>
+                        </div>
+                        ${t.descripcion ? `<p class="text-xs text-slate-500 mb-2 whitespace-pre-line">${t.descripcion}</p>` : ''}
+                        <div class="flex items-center gap-3 text-[11px] text-slate-400 mb-3">
+                            ${t.fecha_limite ? `<span>Vence: ${t.fecha_limite}</span>` : ''}
+                            ${t.actualizado_en ? `<span>Actualizado: ${t.actualizado_en}</span>` : ''}
+                        </div>
+                        ${t.comentario_usuario ? `<div class="bg-slate-50 border rounded-lg p-2 text-xs text-slate-600 mb-2"><span class="font-semibold text-slate-500">Nota de la tienda:</span> ${t.comentario_usuario}</div>` : ''}
+                        ${t.comentario_admin ? `<div class="bg-blue-50 border border-blue-100 rounded-lg p-2 text-xs text-blue-700 mb-2"><span class="font-semibold">Nota del superadmin:</span> ${t.comentario_admin}</div>` : ''}
+
+                        ${t.evidencias && t.evidencias.length > 0 ? `
+                            <div class="flex flex-wrap gap-1.5 mb-2">
+                                ${t.evidencias.map(ev => `
+                                    <a href="${ev.url}" target="_blank" class="flex items-center gap-1 bg-slate-50 border border-slate-200 hover:border-slate-300 rounded-lg px-2 py-1 text-[11px] text-slate-600 transition-colors">
+                                        ${(ev.tipo_archivo || '').startsWith('image/') ? _ICONO_CAMARA : _ICONO_NOTA}<span class="max-w-[130px] truncate">${ev.nombre_archivo || 'Archivo'}</span>
+                                    </a>
+                                `).join('')}
+                            </div>
+                        ` : ''}
+
+                        ${esUsuario ? `
+                            <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+                                <select id="estadoTarea_${t.id}" class="border p-1.5 rounded text-xs">
+                                    <option value="pendiente" ${t.estado === 'pendiente' ? 'selected' : ''}>Pendiente (no hecho)</option>
+                                    <option value="en_progreso" ${t.estado === 'en_progreso' ? 'selected' : ''}>En progreso</option>
+                                    <option value="completada" ${t.estado === 'completada' ? 'selected' : ''}>Completada (hecho)</option>
+                                </select>
+                                <input type="text" id="comentarioTarea_${t.id}" value="${(t.comentario_usuario || '').replace(/"/g, '&quot;')}" placeholder="Comentario (opcional)" class="flex-1 min-w-[140px] border p-1.5 rounded text-xs">
+                                <button onclick="guardarEstadoTarea(${t.id})" class="bg-slate-800 hover:bg-slate-950 text-white text-[11px] font-semibold px-3 py-1.5 rounded-md">Guardar</button>
+                            </div>
+                            <div class="flex items-center gap-2 pt-2">
+                                <label class="cursor-pointer bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold px-3 py-1.5 rounded-md inline-flex items-center gap-1">
+                                    ${_ICONO_ADJUNTAR}Adjuntar evidencia (foto o documento)
+                                    <input type="file" accept="image/*,.pdf,.doc,.docx" class="hidden" onchange="subirEvidenciaTarea(${t.id}, this)">
+                                </label>
+                                <span id="estadoSubidaEvidencia_${t.id}" class="text-[11px] text-slate-400"></span>
+                            </div>
+                        ` : ''}
+
+                        ${esSuperAdmin && t.estado === 'completada' && !t.revisado_por_admin ? `
+                            <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+                                <input type="text" id="comentarioRevision_${t.id}" placeholder="Comentario de revisión (opcional)" class="flex-1 min-w-[140px] border p-1.5 rounded text-xs">
+                                <button onclick="guardarRevisionTarea(${t.id})" class="bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold px-3 py-1.5 rounded-md inline-flex items-center gap-1">${_ICONO_ESCUDO_CHECK}Marcar revisada</button>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function guardarEstadoTarea(tareaId) {
+            const estado = document.getElementById(`estadoTarea_${tareaId}`).value;
+            const comentario = document.getElementById(`comentarioTarea_${tareaId}`).value.trim();
+            try {
+                const resp = await fetch(`/api/tareas/${tareaId}/estado`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ estado, comentario })
+                });
+                const datos = await resp.json();
+                if (!resp.ok) throw new Error(datos.detail || "No se pudo actualizar la tarea.");
+                mostrarToast("Tarea actualizada.");
+                cargarTareas();
+            } catch (e) {
+                await mostrarAviso("Error: " + e.message);
+            }
+        }
+
+        async function subirEvidenciaTarea(tareaId, inputEl) {
+            const archivo = inputEl.files[0];
+            if (!archivo) return;
+            const estadoEl = document.getElementById(`estadoSubidaEvidencia_${tareaId}`);
+            estadoEl.innerText = "Subiendo...";
+            try {
+                const formData = new FormData();
+                formData.append("archivo", archivo);
+                const resp = await fetch(`/api/tareas/${tareaId}/evidencia`, { method: "POST", body: formData });
+                if (resp.status === 401) { mostrarLogin(); return; }
+                const datos = await resp.json();
+                if (!resp.ok) throw new Error(datos.detail || "No se pudo subir el archivo.");
+                mostrarToast("Evidencia adjuntada.");
+                cargarTareas();
+            } catch (e) {
+                estadoEl.innerText = "";
+                await mostrarAviso("Error: " + e.message);
+            } finally {
+                inputEl.value = "";
+            }
+        }
+
+        async function guardarRevisionTarea(tareaId) {
+            const comentario_admin = document.getElementById(`comentarioRevision_${tareaId}`).value.trim();
+            try {
+                const resp = await fetch(`/api/tareas/${tareaId}/revisar`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ comentario_admin })
+                });
+                const datos = await resp.json();
+                if (!resp.ok) throw new Error(datos.detail || "No se pudo marcar como revisada.");
+                mostrarToast("Tarea marcada como revisada.");
+                cargarTareas();
+            } catch (e) {
+                await mostrarAviso("Error: " + e.message);
+            }
+        }
+
+        // Recordatorio: badge con el número de tareas que necesitan atención
+        // (pendientes/en progreso para la tienda, o completadas por revisar
+        // para el superadmin) — se ve en el menú y en el Dashboard sin tener
+        // que entrar a la pantalla de Tareas.
+        async function actualizarBadgeTareas() {
+            const badgeNav = document.getElementById("badgeTareasNav");
+            const bannerDashboard = document.getElementById("bannerTareasDashboard");
+            if (!SESION_USUARIO || (SESION_USUARIO.rol !== 'usuario' && SESION_USUARIO.rol !== 'superadmin')) {
+                badgeNav.classList.add("hidden");
+                if (bannerDashboard) bannerDashboard.classList.add("hidden");
+                return;
+            }
+            try {
+                const resp = await fetch("/api/tareas/resumen");
+                if (!resp.ok) return;
+                const datos = await resp.json();
+                if (datos.pendientes > 0) {
+                    badgeNav.innerText = datos.pendientes;
+                    badgeNav.classList.remove("hidden");
+                    if (bannerDashboard) {
+                        const mensaje = SESION_USUARIO.rol === 'superadmin'
+                            ? `Tenés ${datos.pendientes} tarea${datos.pendientes === 1 ? '' : 's'} completada${datos.pendientes === 1 ? '' : 's'} esperando revisión.`
+                            : `Tenés ${datos.pendientes} tarea${datos.pendientes === 1 ? '' : 's'} pendiente${datos.pendientes === 1 ? '' : 's'}.`;
+                        document.getElementById("bannerTareasDashboardTexto").innerText = mensaje;
+                        bannerDashboard.classList.remove("hidden");
+                    }
+                } else {
+                    badgeNav.classList.add("hidden");
+                    if (bannerDashboard) bannerDashboard.classList.add("hidden");
+                }
+            } catch (e) { /* silencioso: no interrumpir el dashboard por esto */ }
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // CHAT DE CONSULTAS — preguntas en lenguaje natural sobre datos
+        // reales (ventas, ranking de tiendas, productos, cierres), vía
+        // Claude. Solo admin/superadmin. La conversación vive en memoria
+        // del navegador — no es un historial permanente, se pierde al
+        // recargar; es para consultas rápidas del momento.
+        // ══════════════════════════════════════════════════════════════
+        let CHAT_HISTORIAL = [];          // bloques crudos de la API — se manda/recibe tal cual
+        let CHAT_MENSAJES_VISIBLES = [];  // [{rol, texto}] — lo que se pinta en pantalla
+        let CHAT_INICIALIZADO = false;
+
+        function alternarChatFlotante() {
+            const panel = document.getElementById("chatFlotantePanel");
+            if (panel.classList.contains("hidden")) abrirChatFlotante();
+            else cerrarChatFlotante();
+        }
+
+        function abrirChatFlotante() {
+            document.getElementById("chatFlotantePanel").classList.remove("hidden");
+            document.getElementById("chatFlotanteIconoAbrir").classList.add("hidden");
+            document.getElementById("chatFlotanteIconoCerrar").classList.remove("hidden");
+            inicializarChat();
+            document.getElementById("inputChat").focus();
+        }
+
+        function cerrarChatFlotante() {
+            document.getElementById("chatFlotantePanel").classList.add("hidden");
+            document.getElementById("chatFlotanteIconoAbrir").classList.remove("hidden");
+            document.getElementById("chatFlotanteIconoCerrar").classList.add("hidden");
+        }
+
+        function inicializarChat() {
+            if (!CHAT_INICIALIZADO) {
+                CHAT_INICIALIZADO = true;
+                document.getElementById("formChat").addEventListener("submit", enviarMensajeChat);
+            }
+            renderizarChat();
+        }
+
+        function reiniciarChat() {
+            CHAT_HISTORIAL = [];
+            CHAT_MENSAJES_VISIBLES = [];
+            document.getElementById("chatNoConfigurado").classList.add("hidden");
+            renderizarChat();
+        }
+
+        function renderizarChat() {
+            const cont = document.getElementById("chatMensajes");
+            if (CHAT_MENSAJES_VISIBLES.length === 0) {
+                cont.innerHTML = `<p class="text-slate-400 text-sm italic text-center py-8">Preguntá lo que necesites saber sobre ventas, tiendas o cierres — por ejemplo "¿qué tienda vendió más este mes?" o "¿cuántas unidades vendí de tal referencia?".</p>`;
+                return;
+            }
+            cont.innerHTML = CHAT_MENSAJES_VISIBLES.map(m => `
+                <div class="flex ${m.rol === 'user' ? 'justify-end' : 'justify-start'}">
+                    <div class="max-w-[80%] rounded-xl px-3.5 py-2.5 text-sm ${m.rol === 'user' ? 'bg-blue-600 text-white whitespace-pre-line' : 'bg-slate-100 text-slate-800'}">${m.rol === 'user' ? _escaparHtml(m.texto) : _markdownLigeroAHtml(m.texto)}</div>
+                </div>
+            `).join('');
+            cont.scrollTop = cont.scrollHeight;
+        }
+
+        function _escaparHtml(s) {
+            return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        // Conversión mínima de markdown a HTML — cubre lo que el chat
+        // realmente genera (negritas, listas, tablas simples), no es un
+        // parser completo de markdown.
+        function _markdownLigeroAHtml(texto) {
+            const negritas = (s) => s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            const celdasTabla = (linea) => {
+                const partes = linea.split('|').map(c => c.trim());
+                if (partes[0] === '') partes.shift();
+                if (partes.length && partes[partes.length - 1] === '') partes.pop();
+                return partes;
+            };
+
+            const lineas = (texto || '').split('\n');
+            let html = '';
+            let i = 0;
+            while (i < lineas.length) {
+                const linea = lineas[i];
+
+                if (/^\s*\|.*\|\s*$/.test(linea) && i + 1 < lineas.length && /^\s*\|[\s:|-]+\|\s*$/.test(lineas[i + 1])) {
+                    const encabezados = celdasTabla(linea);
+                    html += `<table class="w-full text-xs border-collapse my-1.5"><thead><tr>` +
+                        encabezados.map(h => `<th class="border-b border-slate-300 text-left px-2 py-1 font-semibold">${negritas(_escaparHtml(h))}</th>`).join('') +
+                        `</tr></thead><tbody>`;
+                    i += 2;
+                    while (i < lineas.length && /^\s*\|.*\|\s*$/.test(lineas[i])) {
+                        const celdas = celdasTabla(lineas[i]);
+                        html += `<tr>` + celdas.map(c => `<td class="border-b border-slate-200 px-2 py-1">${negritas(_escaparHtml(c))}</td>`).join('') + `</tr>`;
+                        i++;
+                    }
+                    html += `</tbody></table>`;
+                    continue;
+                }
+
+                html += (html ? '<br>' : '') + negritas(_escaparHtml(linea));
+                i++;
+            }
+            return html;
+        }
+
+        async function enviarMensajeChat(e) {
+            e.preventDefault();
+            const input = document.getElementById("inputChat");
+            const mensaje = input.value.trim();
+            if (!mensaje) return;
+
+            document.getElementById("chatNoConfigurado").classList.add("hidden");
+            CHAT_MENSAJES_VISIBLES.push({ rol: 'user', texto: mensaje });
+            CHAT_MENSAJES_VISIBLES.push({ rol: 'assistant', texto: 'Consultando…' });
+            input.value = "";
+            const btn = document.getElementById("btnEnviarChat");
+            btn.disabled = true;
+            input.disabled = true;
+            renderizarChat();
+
+            try {
+                const resp = await fetch("/api/chat", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ mensaje, historial: CHAT_HISTORIAL })
+                });
+                if (resp.status === 401) { mostrarLogin(); return; }
+                CHAT_MENSAJES_VISIBLES.pop(); // saca el "Consultando…"
+
+                if (resp.status === 503) {
+                    document.getElementById("chatNoConfigurado").classList.remove("hidden");
+                    return;
+                }
+                const datos = await resp.json();
+                if (!resp.ok) throw new Error(datos.detail || "No se pudo procesar la consulta.");
+                CHAT_HISTORIAL = datos.historial;
+                CHAT_MENSAJES_VISIBLES.push({ rol: 'assistant', texto: datos.respuesta });
+            } catch (err) {
+                if (CHAT_MENSAJES_VISIBLES[CHAT_MENSAJES_VISIBLES.length - 1]?.texto === 'Consultando…') CHAT_MENSAJES_VISIBLES.pop();
+                CHAT_MENSAJES_VISIBLES.push({ rol: 'assistant', texto: `⚠ ${err.message}` });
+            } finally {
+                btn.disabled = false;
+                input.disabled = false;
+                input.focus();
+                renderizarChat();
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // AUDITORÍA (solo admin)
+        // ══════════════════════════════════════════════════════════════
+        async function cargarAuditoria() {
+            const cuerpo = document.getElementById("tablaAuditoriaCuerpo");
+            cuerpo.innerHTML = `<tr><td colspan="4" class="text-center py-6 text-slate-400">Cargando...</td></tr>`;
+            try {
+                const resp = await fetch("/api/auditoria?limite=200");
+                if (resp.status === 401) { mostrarLogin(); return; }
+                if (!resp.ok) throw new Error("No se pudo cargar la auditoría.");
+                const registros = await resp.json();
+                if (registros.length === 0) {
+                    cuerpo.innerHTML = `<tr><td colspan="4" class="text-center py-6 text-slate-400">Sin registros todavía.</td></tr>`;
+                    return;
+                }
+                cuerpo.innerHTML = registros.map(r => `
+                    <tr>
+                        <td class="px-4 py-2 whitespace-nowrap text-xs text-slate-500">${r.creado_en || '—'}</td>
+                        <td class="px-4 py-2 whitespace-nowrap font-medium">${r.usuario || '—'}</td>
+                        <td class="px-4 py-2 whitespace-nowrap"><span class="bg-slate-100 text-slate-700 text-[11px] font-bold px-2 py-0.5 rounded-full">${r.accion}</span></td>
+                        <td class="px-4 py-2 text-xs text-slate-500">${r.detalle || '—'}</td>
+                    </tr>
+                `).join('');
+            } catch (e) {
+                cuerpo.innerHTML = `<tr><td colspan="4" class="text-center py-6 text-rose-500"><svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4 22 20.5H2L12 4Z"/><line x1="12" y1="10" x2="12" y2="14.5"/><circle cx="12" cy="17.2" r="0.7" fill="currentColor" stroke="none"/></svg> ${e.message}</td></tr>`;
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // BÚSQUEDA GLOBAL (header)
+        // ══════════════════════════════════════════════════════════════
+        let _busquedaGlobalTimeout = null;
+        function buscarGlobal() {
+            clearTimeout(_busquedaGlobalTimeout);
+            const q = document.getElementById("inputBusquedaGlobal").value.trim();
+            const contenedor = document.getElementById("resultadosBusquedaGlobal");
+            if (q.length < 2) { contenedor.classList.add("hidden"); contenedor.innerHTML = ""; return; }
+            _busquedaGlobalTimeout = setTimeout(async () => {
+                try {
+                    const resp = await fetch(`/api/buscar?q=${encodeURIComponent(q)}`);
+                    if (!resp.ok) return;
+                    const data = await resp.json();
+                    RESULTADOS_BUSQUEDA_GLOBAL_ACTUAL = data.resultados || [];
+                    if (RESULTADOS_BUSQUEDA_GLOBAL_ACTUAL.length === 0) {
+                        contenedor.innerHTML = `<p class="text-slate-400 text-xs px-3 py-3 text-center">Sin resultados.</p>`;
+                    } else {
+                        contenedor.innerHTML = RESULTADOS_BUSQUEDA_GLOBAL_ACTUAL.map((r, i) => `
+                            <button type="button" onclick="irAResultadoBusqueda(${i})" class="w-full text-left px-3 py-2 hover:bg-slate-50 border-b last:border-b-0">
+                                <p class="font-semibold text-slate-800 text-xs">${r.titulo}</p>
+                                <p class="text-[11px] text-slate-400">${r.subtitulo || ''}</p>
+                            </button>
+                        `).join('');
+                    }
+                    contenedor.classList.remove("hidden");
+                } catch (e) { /* silencioso: no interrumpir por un buscador */ }
+            }, 250);
+        }
+
+        let RESULTADOS_BUSQUEDA_GLOBAL_ACTUAL = [];
+        function irAResultadoBusqueda(indice) {
+            const r = RESULTADOS_BUSQUEDA_GLOBAL_ACTUAL[indice];
+            document.getElementById("resultadosBusquedaGlobal").classList.add("hidden");
+            document.getElementById("inputBusquedaGlobal").value = "";
+            if (r && r.pantalla) irA(r.pantalla);
+        }
+
+        document.addEventListener("click", (e) => {
+            const caja = document.getElementById("inputBusquedaGlobal");
+            const contenedor = document.getElementById("resultadosBusquedaGlobal");
+            if (caja && contenedor && !caja.contains(e.target) && !contenedor.contains(e.target)) {
+                contenedor.classList.add("hidden");
+            }
+        });
 
         // ══════════════════════════════════════════════════════════════
         // HISTORIAL DE CIERRES (solo admin)
@@ -1722,7 +3090,7 @@
                 aplicarFiltrosHistorial();
             } catch (error) {
                 console.error(error);
-                cuerpo.innerHTML = `<tr><td colspan="5" class="text-center py-6 text-rose-600 font-medium">⚠️ Falló la carga del módulo histórico.</td></tr>`;
+                cuerpo.innerHTML = `<tr><td colspan="5" class="text-center py-6 text-rose-600 font-medium">${_ICONO_ALERTA} Falló la carga del módulo histórico.</td></tr>`;
             }
         }
 
@@ -1745,6 +3113,35 @@
             renderizarTablaHistorial(filtrado);
         }
 
+        function exportarHistorialCSV() {
+            const tienda = document.getElementById("filtroHistorialTienda").value;
+            const estado = document.getElementById("filtroHistorialEstado").value;
+            const desde = document.getElementById("filtroHistorialDesde").value;
+            const hasta = document.getElementById("filtroHistorialHasta").value;
+            const filtrado = HISTORIAL_CIERRES_MEMORIA.filter(c => {
+                if (tienda && (c.tienda || c.tienda_nombre) !== tienda) return false;
+                if (estado !== "" && String(c.completado) !== estado) return false;
+                if (desde && c.fecha < desde) return false;
+                if (hasta && c.fecha > hasta) return false;
+                return true;
+            });
+            if (filtrado.length === 0) { mostrarToast("No hay datos para exportar.", "error"); return; }
+
+            const textoEstado = (c) => c.completado === 1 ? 'Aprobado' : c.completado === 2 ? 'Rechazado' : 'Pendiente';
+            const encabezados = ["Fecha", "Tienda", "Usuario", "Estado", "Observaciones"];
+            const filas = filtrado.map(c => [c.fecha, c.tienda || c.tienda_nombre, c.usuario, textoEstado(c), c.observaciones_cajero || '']);
+            const csv = [encabezados, ...filas].map(fila => fila.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+            const blob = new Blob(["﻿" + csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `historial_cierres.csv`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        }
+
         function limpiarFiltrosHistorial() {
             document.getElementById("filtroHistorialTienda").value = "";
             document.getElementById("filtroHistorialEstado").value = "";
@@ -1753,9 +3150,61 @@
             aplicarFiltrosHistorial();
         }
 
+        // % de cierres aprobados por mes (sobre los ya decididos — aprobados o
+        // rechazados; los pendientes no cuentan todavía). Usa lo que esté
+        // filtrado en pantalla, así el gráfico responde a los mismos filtros.
+        function dibujarGraficoHistorial(datos) {
+            const cont = document.getElementById("historialGraficoContenedor");
+            if (!cont) return;
+            if (!datos || datos.length === 0) { cont.innerHTML = ""; return; }
+
+            const porMes = {};
+            datos.forEach(c => {
+                const mes = (c.fecha || '').slice(0, 7);
+                if (!mes) return;
+                if (!porMes[mes]) porMes[mes] = { aprobados: 0, rechazados: 0, pendientes: 0 };
+                if (c.completado === 1) porMes[mes].aprobados++;
+                else if (c.completado === 2) porMes[mes].rechazados++;
+                else porMes[mes].pendientes++;
+            });
+
+            const meses = Object.keys(porMes).sort();
+            if (meses.length === 0) { cont.innerHTML = ""; return; }
+
+            const anchoPorMes = 60;
+            const ancho = Math.max(300, meses.length * anchoPorMes);
+            const alto = 130;
+            const alturaBarras = 90;
+
+            const barras = meses.map((mes, i) => {
+                const m = porMes[mes];
+                const decididos = m.aprobados + m.rechazados;
+                const pct = decididos > 0 ? Math.round((m.aprobados / decididos) * 100) : null;
+                const x = i * anchoPorMes + 10;
+                const anchoBarra = anchoPorMes - 20;
+                const alturaBarra = pct === null ? 0 : (pct / 100) * alturaBarras;
+                const y = 10 + (alturaBarras - alturaBarra);
+                const color = pct === null ? '#cbd5e1' : pct >= 80 ? '#059669' : pct >= 50 ? '#d97706' : '#dc2626';
+                const [anio, numMes] = mes.split('-');
+                const etiquetaMes = new Date(Number(anio), Number(numMes) - 1, 1).toLocaleDateString('es', { month: 'short' });
+                return `
+                    <text x="${x + anchoBarra / 2}" y="6" font-size="10" font-weight="bold" fill="${color}" text-anchor="middle">${pct === null ? '—' : pct + '%'}</text>
+                    <rect x="${x}" y="${y}" width="${anchoBarra}" height="${Math.max(1, alturaBarra)}" rx="3" fill="${color}"></rect>
+                    <text x="${x + anchoBarra / 2}" y="${alto - 6}" font-size="10" fill="#64748b" text-anchor="middle">${etiquetaMes} ${anio.slice(2)}</text>
+                    ${m.pendientes > 0 ? `<title>${m.pendientes} pendiente(s) sin contar</title>` : ''}
+                `;
+            }).join('');
+
+            cont.innerHTML = `
+                <h4 class="text-xs font-bold text-slate-700 uppercase mb-2">% de cierres aprobados por mes</h4>
+                <svg width="${ancho}" height="${alto}" viewBox="0 0 ${ancho} ${alto}">${barras}</svg>
+            `;
+        }
+
         function renderizarTablaHistorial(datos) {
             const cuerpo = document.getElementById("tablaHistorialCuerpo");
             cuerpo.innerHTML = "";
+            dibujarGraficoHistorial(datos);
 
             if (HISTORIAL_CIERRES_MEMORIA.length === 0) {
                 cuerpo.innerHTML = `<tr><td colspan="5" class="text-center py-6 text-slate-400">No hay cierres históricos en la base de datos.</td></tr>`;
@@ -1768,11 +3217,11 @@
 
             datos.forEach((cierre) => {
                 // El backend manda "completado": 1 = Aprobado, 2 = Rechazado, 0 = Pendiente.
-                let estadoBadge = `<span class="bg-amber-50 text-amber-700 ring-1 ring-amber-600/10 text-xs px-2.5 py-1 rounded-md font-semibold">⏳ Pendiente</span>`;
+                let estadoBadge = `<span class="bg-amber-50 text-amber-700 ring-1 ring-amber-600/10 text-xs px-2.5 py-1 rounded-md font-semibold inline-flex items-center gap-1">${_ICONO_RELOJ}Pendiente</span>`;
                 if (cierre.completado === 1) {
-                    estadoBadge = `<span class="bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/10 text-xs px-2.5 py-1 rounded-md font-semibold">✅ Aprobado</span>`;
+                    estadoBadge = `<span class="bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/10 text-xs px-2.5 py-1 rounded-md font-semibold inline-flex items-center gap-1">${_ICONO_CHECK}Aprobado</span>`;
                 } else if (cierre.completado === 2) {
-                    estadoBadge = `<span class="bg-rose-50 text-rose-700 ring-1 ring-rose-600/10 text-xs px-2.5 py-1 rounded-md font-semibold">❌ Rechazado</span>`;
+                    estadoBadge = `<span class="bg-rose-50 text-rose-700 ring-1 ring-rose-600/10 text-xs px-2.5 py-1 rounded-md font-semibold inline-flex items-center gap-1">${_ICONO_X}Rechazado</span>`;
                 }
 
                 const tieneObs = !!(cierre.observaciones_cajero && cierre.observaciones_cajero.trim());
@@ -1781,10 +3230,10 @@
                         <td class="px-4 py-3.5 font-semibold text-slate-900">${cierre.fecha}</td>
                         <td class="px-4 py-3.5 font-medium text-slate-700">${cierre.tienda || cierre.tienda_nombre}</td>
                         <td class="px-4 py-3.5 text-slate-500">${cierre.usuario}</td>
-                        <td class="px-4 py-3.5 text-center">${estadoBadge}${tieneObs ? ' <span title="Tiene observaciones del cajero" class="ml-1">📝</span>' : ''}</td>
+                        <td class="px-4 py-3.5 text-center">${estadoBadge}${tieneObs ? ` <span title="Tiene observaciones del cajero" class="ml-1 text-amber-500">${_ICONO_NOTA}</span>` : ''}</td>
                         <td class="px-4 py-3.5 text-center">
-                            <button onclick="abrirAuditoriaCierre(${cierre.id})" class="bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold px-3 py-1.5 rounded-lg shadow-sm transition-all duration-150">
-                                🕵️ Auditar
+                            <button onclick="abrirAuditoriaCierre(${cierre.id})" class="bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold px-3 py-1.5 rounded-lg shadow-sm transition-all duration-150 inline-flex items-center gap-1">
+                                ${_ICONO_ESCUDO_CHECK}Auditar
                             </button>
                         </td>
                     </tr>
@@ -1845,8 +3294,8 @@
                             </div>
                             <div class="flex items-center gap-3">
                                 <span class="font-bold text-slate-800 text-sm">$${total.toFixed(2)}</span>
-                                <button onclick="verDetalleVentaDesdeAuditoria('${id}')" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-2.5 py-1 rounded-md transition-all duration-150">
-                                    🔍 Ver
+                                <button onclick="verDetalleVentaDesdeAuditoria('${id}')" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-2.5 py-1 rounded-md transition-all duration-150 inline-flex items-center gap-1">
+                                    ${_ICONO_LUPA}Ver
                                 </button>
                                 <label class="flex items-center gap-1 text-[11px] font-bold text-emerald-700 ${yaDecidido ? 'opacity-60' : 'cursor-pointer'} select-none" title="Marcar esta venta como revisada (comprobante vs. dato)">
                                     <input type="checkbox" data-orden-id="${id}" ${revisado ? 'checked' : ''} ${yaDecidido ? 'disabled' : ''} onchange="marcarPedidoRevisado('${id}', this.checked, this)" class="w-3.5 h-3.5 accent-emerald-600">
@@ -1957,7 +3406,7 @@
                 if(venta.comprobante_url) {
                     contenedorImg.innerHTML = `
                         <div class="mt-5 pt-4 border-t border-slate-100 bg-slate-50 rounded-xl p-3">
-                            <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2">📸 Comprobante Digital adjunto</span>
+                            <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1">${_ICONO_CAMARA}Comprobante Digital adjunto</span>
                             <a href="${venta.comprobante_url}" target="_blank" class="block border border-slate-200 rounded-lg overflow-hidden bg-white hover:border-slate-300 transition-all shadow-sm group">
                                 <img src="${urlMiniaturaDrive(venta.comprobante_url)}" alt="Comprobante" class="max-h-44 mx-auto object-contain p-1 group-hover:scale-[1.02] transition-transform duration-200"/>
                             </a>
@@ -2070,7 +3519,7 @@
                         console.warn("No se pudo actualizar la caché local del comprobante:", errCache);
                     }
 
-                    await mostrarAviso("Comprobante de la venta guardado correctamente.", 'bg-emerald-600');
+                    mostrarToast("Comprobante de la venta guardado correctamente.");
                     cerrarModalVenta();
                 } else {
                     const err = await response.json().catch(() => ({}));
@@ -2145,7 +3594,7 @@
                     el.classList.add("opacity-60", "cursor-not-allowed", "shadow-none");
                     if(el.id === "btnSubirCierre") {
                         el.className = "w-full bg-slate-800 text-slate-300 font-semibold py-3 px-4 rounded-xl flex justify-center items-center gap-2 cursor-not-allowed opacity-75";
-                        el.innerHTML = "🔒 Registro Cerrado e Inmutable";
+                        el.innerHTML = `${_ICONO_CANDADO}Registro Cerrado e Inmutable`;
                     }
                 }
             });
@@ -2182,13 +3631,13 @@
                             <td class="px-4 py-3 font-semibold text-slate-900">${m.tienda}</td>
                             <td class="px-4 py-3 text-right font-bold text-slate-700">$${m.monto_meta.toFixed(2)}</td>
                             <td class="px-4 py-3 text-center">
-                                <button onclick="editarMetaDesdeTabla('${tiendaEscapada}', ${anio}, ${mes}, ${m.monto_meta})" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold px-2.5 py-1 rounded-md">✏️ Editar</button>
+                                <button onclick="editarMetaDesdeTabla('${tiendaEscapada}', ${anio}, ${mes}, ${m.monto_meta})" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold px-2.5 py-1 rounded-md inline-flex items-center gap-1">${_ICONO_LAPIZ}Editar</button>
                             </td>
                         </tr>
                     `;
                 });
             } catch (e) {
-                cuerpo.innerHTML = `<tr><td colspan="3" class="text-center py-6 text-rose-600 font-medium">⚠️ ${e.message}</td></tr>`;
+                cuerpo.innerHTML = `<tr><td colspan="3" class="text-center py-6 text-rose-600 font-medium"><svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4 22 20.5H2L12 4Z"/><line x1="12" y1="10" x2="12" y2="14.5"/><circle cx="12" cy="17.2" r="0.7" fill="currentColor" stroke="none"/></svg> ${e.message}</td></tr>`;
             }
         }
 
@@ -2253,13 +3702,14 @@
                 COMISIONES_MEMORIA = datos.tiendas || [];
                 renderizarTablaComisiones();
             } catch (e) {
-                cuerpo.innerHTML = `<tr><td colspan="9" class="text-center py-6 text-rose-600 font-medium">⚠️ ${e.message}</td></tr>`;
+                cuerpo.innerHTML = `<tr><td colspan="9" class="text-center py-6 text-rose-600 font-medium"><svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4 22 20.5H2L12 4Z"/><line x1="12" y1="10" x2="12" y2="14.5"/><circle cx="12" cy="17.2" r="0.7" fill="currentColor" stroke="none"/></svg> ${e.message}</td></tr>`;
             }
         }
 
         function renderizarTablaComisiones() {
             const cuerpo = document.getElementById("tablaComisionesCuerpo");
             cuerpo.innerHTML = "";
+            dibujarGraficoComisiones();
             if (COMISIONES_MEMORIA.length === 0) {
                 cuerpo.innerHTML = `<tr><td colspan="9" class="text-center py-6 text-slate-400 italic">Sin ventas registradas en Odoo para este rango de fechas.</td></tr>`;
                 return;
@@ -2276,17 +3726,72 @@
                         <td class="px-4 py-3 text-center">${t.cantidad_colaboradores}</td>
                         <td class="px-4 py-3 text-right font-semibold">$${t.comision_por_colaborador.toFixed(2)}</td>
                         <td class="px-4 py-3 text-center">
-                            <button onclick="abrirDetalleComision('${t.tienda.replace(/'/g, "\\'")}')" class="bg-slate-800 hover:bg-slate-950 text-white text-[11px] font-medium px-3 py-1.5 rounded-lg transition-colors">🔍 Ver</button>
+                            <button onclick="abrirDetalleComision('${t.tienda.replace(/'/g, "\\'")}')" class="bg-slate-800 hover:bg-slate-950 text-white text-[11px] font-medium px-3 py-1.5 rounded-lg transition-colors inline-flex items-center gap-1">${_ICONO_LUPA}Ver</button>
                         </td>
                     </tr>`;
             });
+        }
+
+        // Barras horizontales por tienda — se ordena de mayor a menor comisión
+        // para que se note de un vistazo cuál tienda aportó más ese período.
+        function dibujarGraficoComisiones() {
+            const cont = document.getElementById("comisionesGraficoContenedor");
+            if (!cont) return;
+            if (COMISIONES_MEMORIA.length === 0) { cont.innerHTML = ""; return; }
+
+            const datos = [...COMISIONES_MEMORIA].sort((a, b) => b.total_comision - a.total_comision);
+            const maxComision = Math.max(1, ...datos.map(d => d.total_comision));
+            const filaAlto = 28;
+            const alto = datos.length * filaAlto + 10;
+            const anchoTotal = 680;
+            const anchoEtiqueta = 180;
+            const anchoBarras = anchoTotal - anchoEtiqueta - 70;
+
+            const barras = datos.map((d, i) => {
+                const y = i * filaAlto + 6;
+                const anchoBarra = Math.max(2, (d.total_comision / maxComision) * anchoBarras);
+                return `
+                    <text x="${anchoEtiqueta - 8}" y="${y + 14}" font-size="11" fill="#475569" text-anchor="end">${d.tienda}</text>
+                    <rect x="${anchoEtiqueta}" y="${y}" width="0" height="18" rx="3" fill="#059669" class="barra-comision" data-ancho="${anchoBarra.toFixed(1)}">
+                        <animate attributeName="width" from="0" to="${anchoBarra.toFixed(1)}" dur="600ms" fill="freeze" begin="${i * 40}ms"/>
+                    </rect>
+                    <text x="${anchoEtiqueta + anchoBarra + 6}" y="${y + 14}" font-size="11" font-weight="bold" fill="#0f172a">$${d.total_comision.toFixed(2)}</text>
+                `;
+            }).join('');
+
+            cont.innerHTML = `
+                <h4 class="text-xs font-bold text-slate-700 uppercase mb-2">Comisión total por tienda</h4>
+                <svg width="${anchoTotal}" height="${alto}" viewBox="0 0 ${anchoTotal} ${alto}">${barras}</svg>
+            `;
+        }
+
+        // CSV: se abre bien en Excel sin depender de ninguna librería externa.
+        function exportarComisionesCSV() {
+            if (COMISIONES_MEMORIA.length === 0) { mostrarToast("No hay datos para exportar.", "error"); return; }
+            const encabezados = ["Tienda", "Total Efectivo", "Subtotal Efectivo", "Total TC", "Subtotal TC", "Retencion Tarjeta", "Total Comision", "Colaboradores", "Comision x Colaborador"];
+            const filas = COMISIONES_MEMORIA.map(t => [
+                t.tienda, t.total_efectivo, t.subtotal_efectivo, t.total_tarjeta, t.subtotal_tarjeta,
+                t.retencion_tarjeta, t.total_comision, t.cantidad_colaboradores, t.comision_por_colaborador
+            ]);
+            const csv = [encabezados, ...filas].map(fila => fila.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+            const blob = new Blob(["﻿" + csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const desde = document.getElementById("comisionesDesde").value;
+            const hasta = document.getElementById("comisionesHasta").value;
+            a.href = url;
+            a.download = `comisiones_${desde}_a_${hasta}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
         }
 
         function abrirDetalleComision(nombreTienda) {
             const t = COMISIONES_MEMORIA.find(x => x.tienda === nombreTienda);
             if (!t) return;
 
-            document.getElementById("detalleComisionTitulo").innerText = `💰 Detalle de Comisión — ${t.tienda}`;
+            document.getElementById("detalleComisionTitulo").innerHTML = `<svg class="icono" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v9M14.5 9.8c0-1.1-1.1-1.8-2.5-1.8s-2.5.7-2.5 1.8c0 2.4 5 1.1 5 3.6 0 1.1-1.1 1.8-2.5 1.8s-2.5-.7-2.5-1.8"/></svg>Detalle de Comisión — ${t.tienda}`;
 
             document.getElementById("detalleComisionEfectivo").innerHTML = `
                 <tr><td class="px-2 py-1.5">total</td><td class="px-2 py-1.5 text-right">$${t.total_efectivo.toFixed(2)}</td></tr>
@@ -2337,7 +3842,7 @@
                 USUARIOS_MEMORIA = await resp.json();
                 aplicarFiltrosUsuarios();
             } catch (e) {
-                cuerpo.innerHTML = `<tr><td colspan="6" class="text-center py-6 text-rose-600 font-medium">⚠️ ${e.message}</td></tr>`;
+                cuerpo.innerHTML = `<tr><td colspan="6" class="text-center py-6 text-rose-600 font-medium"><svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4 22 20.5H2L12 4Z"/><line x1="12" y1="10" x2="12" y2="14.5"/><circle cx="12" cy="17.2" r="0.7" fill="currentColor" stroke="none"/></svg> ${e.message}</td></tr>`;
             }
         }
 
@@ -2381,11 +3886,11 @@
                     <tr class="border-b border-slate-100 hover:bg-slate-50 text-xs">
                         <td class="px-4 py-3 font-semibold text-slate-900">${u.nombre}</td>
                         <td class="px-4 py-3 text-slate-600">${u.email}</td>
-                        <td class="px-4 py-3">${u.rol === 'admin' ? '👑 Admin' : 'Usuario'}</td>
-                        <td class="px-4 py-3 text-slate-600">${u.tienda || (u.rol === 'admin' ? '— (ve todo)' : 'Sin asignar')}</td>
+                        <td class="px-4 py-3">${u.rol === 'superadmin' ? '<span class="bg-blue-50 text-blue-700 ring-1 ring-blue-600/10 text-[11px] px-2 py-0.5 rounded-md font-semibold">Superadmin</span>' : u.rol === 'admin' ? '<span class="bg-slate-100 text-slate-600 ring-1 ring-slate-400/10 text-[11px] px-2 py-0.5 rounded-md font-semibold">Admin</span>' : 'Usuario'}</td>
+                        <td class="px-4 py-3 text-slate-600">${u.tienda || (u.rol !== 'usuario' ? '— (ve todo)' : 'Sin asignar')}</td>
                         <td class="px-4 py-3 text-center">${estadoBadge}</td>
                         <td class="px-4 py-3 text-center space-x-1 whitespace-nowrap">
-                            <button onclick="resetPasswordUsuario(${u.id}, '${nombreEscapado}')" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold px-2 py-1 rounded-md">🔑 Contraseña</button>
+                            <button onclick="resetPasswordUsuario(${u.id}, '${nombreEscapado}')" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold px-2 py-1 rounded-md inline-flex items-center gap-1">${_ICONO_LLAVE}Contraseña</button>
                             <button onclick="alternarActivoUsuario(${u.id}, ${!u.activo})" class="${u.activo ? 'bg-rose-100 hover:bg-rose-200 text-rose-700' : 'bg-emerald-100 hover:bg-emerald-200 text-emerald-700'} text-[11px] font-semibold px-2 py-1 rounded-md">
                                 ${u.activo ? 'Desactivar' : 'Reactivar'}
                             </button>
@@ -2416,7 +3921,7 @@
                 });
                 const datos = await resp.json();
                 if (!resp.ok) throw new Error(datos.detail || "No se pudo crear el usuario.");
-                await mostrarAviso(`Usuario "${nombre}" creado correctamente.`, 'bg-emerald-600');
+                mostrarToast(`Usuario "${nombre}" creado correctamente.`);
                 e.target.reset();
                 alternarCampoTiendaUsuario();
                 cargarUsuarios();
@@ -2454,7 +3959,7 @@
                 });
                 const datos = await resp.json();
                 if (!resp.ok) throw new Error(datos.detail || "No se pudo cambiar la contraseña.");
-                await mostrarAviso("Contraseña actualizada.", 'bg-emerald-600');
+                mostrarToast("Contraseña actualizada.");
             } catch (err) {
                 await mostrarAviso("Error: " + err.message);
             }
@@ -2463,6 +3968,15 @@
         // ══════════════════════════════════════════════════════════════
         // ARRANQUE
         // ══════════════════════════════════════════════════════════════
+        // PWA: registra el service worker (ver public/sw.js). No es crítico
+        // para que la app funcione, así que un fallo acá nunca debe romper
+        // nada más — solo se pierde la mejora de "abre como app instalada".
+        if ("serviceWorker" in navigator) {
+            window.addEventListener("load", () => {
+                navigator.serviceWorker.register("/sw.js").catch(() => { /* sin service worker, la app sigue funcionando igual */ });
+            });
+        }
+
         iniciarApp();
 
         // Válvula de escape: si por lo que sea un modal se queda "pegado" (ej. un
