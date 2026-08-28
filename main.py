@@ -47,7 +47,7 @@ def _env_requerida(nombre):
 # Vercel no es necesariamente la carpeta del proyecto).
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-app = FastAPI(title="SociaBoss Dashboard API", version="2.0")
+app = FastAPI(title="Cultura Tejida Dashboard API", version="2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -56,7 +56,7 @@ app.add_middleware(
     # nunca necesita CORS cross-origin con credenciales. allow_origins="*" +
     # allow_credentials=True dejaría que CUALQUIER sitio externo hiciera
     # peticiones autenticadas usando la cookie de sesión de un usuario que
-    # tenga la pestaña de SociaBoss abierta. Con credentials en False, un
+    # tenga la pestaña de Cultura Tejida abierta. Con credentials en False, un
     # navegador nunca envía la cookie en una petición cross-origin.
     allow_credentials=False,
     allow_methods=["*"],
@@ -384,9 +384,9 @@ async def olvide_password(request: Request):
         base_url = str(request.base_url).rstrip("/")
         link = f"{base_url}/?reset={token}"
         enviado = _enviar_email(
-            email, "Recuperar contraseña — SociaBoss",
+            email, "Recuperar contraseña — Cultura Tejida",
             f"""<p>Hola {usuario['nombre']},</p>
-            <p>Pediste restablecer tu contraseña de SociaBoss. Este enlace vale por {MINUTOS_VALIDEZ_TOKEN_RECUPERACION} minutos:</p>
+            <p>Pediste restablecer tu contraseña de Cultura Tejida. Este enlace vale por {MINUTOS_VALIDEZ_TOKEN_RECUPERACION} minutos:</p>
             <p><a href="{link}">{link}</a></p>
             <p>Si no fuiste vos, ignorá este correo — tu contraseña actual sigue funcionando igual.</p>"""
         )
@@ -775,7 +775,7 @@ def obtener_ventas(fecha: str = None, usuario=Depends(obtener_usuario_actual)):
 
         lista_ventas = []
         for sale in sales:
-            tienda_nombre = sale['config_id'][1] if sale['config_id'] else "SociaBoss Local"
+            tienda_nombre = sale['config_id'][1] if sale['config_id'] else "Cultura Tejida Local"
             pagos = pagos_por_orden.get(sale['id'], [])
             # Pago mixto (ej. efectivo + tarjeta): mostramos TODOS los métodos usados
             # en vez de solo el primero, para que coincida con el desglose real de Odoo.
@@ -928,7 +928,7 @@ async def subir_comprobante_venta(
         # frontend en memoria — YA NO se adivina parseando el orden_id. Antes, un
         # reembolso como "REEMBOLSO DE Lemaler Village/2943" partía mal el nombre
         # y creaba una tienda fantasma ("REEMBOLSO DE Lemaler Village") en Postgres.
-        tienda_detectada = tienda.strip() or "SociaBoss Local"
+        tienda_detectada = tienda.strip() or "Cultura Tejida Local"
 
         conexion = obtener_conexion()
         cursor = conexion.cursor(cursor_factory=RealDictCursor)
@@ -2181,7 +2181,7 @@ def reporte_ejecutivo_pdf(anio: int = None, mes: int = None, admin=Depends(reque
     estilo_pie = ParagraphStyle('PieSB', parent=estilos['Normal'], textColor=colors.HexColor('#94a3b8'), fontSize=8, alignment=TA_CENTER)
 
     elementos = [
-        Paragraph("SociaBoss — Reporte Ejecutivo Mensual", estilo_titulo),
+        Paragraph("Cultura Tejida — Reporte Ejecutivo Mensual", estilo_titulo),
         Paragraph(f"{MESES_ES[mes].capitalize()} {anio} · Generado el {datetime.now(tz_odoo).strftime('%d/%m/%Y %H:%M')} por {admin['nombre']}", estilo_subtitulo),
     ]
 
@@ -2256,7 +2256,7 @@ def reporte_ejecutivo_pdf(anio: int = None, mes: int = None, admin=Depends(reque
     elementos.append(tabla_tiendas)
 
     elementos.append(Spacer(1, 1.2 * cm))
-    elementos.append(Paragraph("Generado automáticamente por SociaBoss — datos en vivo desde Odoo y el registro interno de cierres.", estilo_pie))
+    elementos.append(Paragraph("Generado automáticamente por Cultura Tejida — datos en vivo desde Odoo y el registro interno de cierres.", estilo_pie))
 
     doc.build(elementos)
     pdf_bytes = buffer.getvalue()
@@ -2325,7 +2325,7 @@ def obtener_comisiones(desde: str, hasta: str, admin=Depends(requerir_superadmin
 
         datos_tienda = {}
         for o in ordenes:
-            tienda_nombre = o['config_id'][1] if o.get('config_id') else "SociaBoss Local"
+            tienda_nombre = o['config_id'][1] if o.get('config_id') else "Cultura Tejida Local"
             d = datos_tienda.setdefault(tienda_nombre, {'efectivo': 0.0, 'tarjeta': 0.0, 'colaboradores': set()})
             cajero = o.get('cashier')
             # Odoo tiene un cajero de pruebas ("PRUEBAS PoS") usado para testear
@@ -2421,7 +2421,7 @@ def obtener_dashboard(usuario=Depends(obtener_usuario_actual)):
                 [filtros], {'fields': ['config_id', 'amount_total']}
             )
             for o in ordenes:
-                nombre = o['config_id'][1] if o.get('config_id') else "SociaBoss Local"
+                nombre = o['config_id'][1] if o.get('config_id') else "Cultura Tejida Local"
                 d = ventas_por_tienda.setdefault(nombre, {"venta": 0.0, "cantidad": 0})
                 d["venta"] += o.get('amount_total', 0.0) or 0.0
                 d["cantidad"] += 1
@@ -2874,7 +2874,7 @@ async def chat_consultas(request: Request, admin=Depends(requerir_admin)):
 
     hoy = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     system_prompt = (
-        "Sos el asistente de datos de SociaBoss, un panel de ventas para las tiendas Lemaler y Mariola. "
+        "Sos el asistente de datos de Cultura Tejida, un panel de ventas para las tiendas Lemaler y Mariola. "
         f"Hoy es {hoy}. Respondés en español, de forma breve y concreta, citando montos en dólares con 2 "
         "decimales. Usá siempre las herramientas disponibles para consultar datos reales — nunca inventes "
         "cifras ni infieras un resultado sin haber llamado a una herramienta. Si una pregunta menciona una "
@@ -2933,13 +2933,13 @@ async def chat_consultas(request: Request, admin=Depends(requerir_admin)):
 
 # ─── MÓDULO 6: TAREAS — se asignan en Odoo (módulo Proyecto/Tareas), a la
 # tienda: cada tienda tiene su propio usuario en Odoo con el mismo nombre
-# que en TIENDAS_CONOCIDAS. SociaBoss solo LEE de Odoo (nunca escribe de
+# que en TIENDAS_CONOCIDAS. Cultura Tejida solo LEE de Odoo (nunca escribe de
 # vuelta); el estado del lado de la tienda (pendiente/en progreso/
 # completada) y la revisión del superadmin viven acá, en Postgres. ───
 def _sincronizar_tareas_odoo(cursor):
     """Trae de Odoo las tareas asignadas a alguna tienda conocida y hace
     upsert en `tareas` por odoo_task_id. Los campos de workflow propios de
-    SociaBoss (estado, comentarios, revisión) nunca se pisan acá — el
+    Cultura Tejida (estado, comentarios, revisión) nunca se pisan acá — el
     upsert solo actualiza título/descripción/fecha límite/prioridad."""
     try:
         common = xmlrpc.client.ServerProxy(f'{ODOO_URL}/xmlrpc/2/common')
@@ -3211,5 +3211,5 @@ async def revisar_tarea(tarea_id: int, request: Request, superadmin=Depends(requ
 if __name__ == "__main__":
     import uvicorn
     # Eliminamos el bloque antiguo de creación manual porque ya lo maneja de forma impecable tu db_manager.py
-    print("Iniciando el servidor de SociaBoss conectado a PostgreSQL 17...")
+    print("Iniciando el servidor de Cultura Tejida conectado a PostgreSQL 17...")
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

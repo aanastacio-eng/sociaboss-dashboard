@@ -1,11 +1,14 @@
-// Service worker de SociaBoss — el objetivo NO es "app offline completa" (los
+// Service worker de Cultura Tejida — el objetivo NO es "app offline completa" (los
 // datos de ventas/cierres siempre tienen que venir en vivo de Odoo/Postgres,
 // cachear eso sería mostrar información financiera desactualizada sin avisar).
 // El único objetivo es que el ícono instalado abra algo en vez de mostrar el
 // error de "sin conexión" del navegador, y que recargar sea un poco más
 // rápido. Estrategia: red primero siempre; si no hay red, se sirve la última
 // copia del "shell" (HTML/íconos/manifest) que haya quedado en caché.
-const CACHE_NAME = "sociaboss-shell-v1";
+// Al renombrar el caché, el handler "activate" borra el anterior — es lo que
+// hace que quien ya tenga la PWA instalada reciba la marca nueva en vez de
+// seguir viendo el shell viejo servido desde su caché.
+const CACHE_NAME = "cultura-tejida-shell-v1";
 const SHELL_URLS = ["/", "/manifest.json", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {

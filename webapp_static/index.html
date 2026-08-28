@@ -3,14 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SociaBoss - Monitoreo POS</title>
+    <title>Cultura Tejida - Monitoreo POS</title>
+    <meta name="description" content="Panel de ventas, cierres de caja y KPIs de las tiendas de Cultura Tejida.">
     <link rel="manifest" href="/manifest.json">
     <link rel="icon" href="/icons/favicon.ico" sizes="any">
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
-    <meta name="theme-color" content="#1e2340">
+    <!-- Dos theme-color: el color de la barra del navegador acompaña al tema
+         que el usuario tenga puesto, en vez de quedar siempre oscuro. -->
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#0f1318" media="(prefers-color-scheme: dark)">
+    <script>
+        // MODO OSCURO — tiene que correr acá, en el <head>, ANTES de que el
+        // navegador pinte el <body>. Si se aplica más abajo (junto al resto
+        // del JS), el usuario con tema oscuro ve un destello blanco en cada
+        // carga, porque el body ya se pintó en claro antes de agregar la clase.
+        try {
+            if (localStorage.getItem("socia_tema") === "oscuro") {
+                document.documentElement.classList.add("dark");
+            }
+        } catch (e) { /* modo privado, cookies bloqueadas, etc. */ }
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://cdn.tailwindcss.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -111,6 +127,35 @@
         /* Icono inline (reemplaza los emoji): tamaño y alineado consistentes
            sin importar dónde se use — junto a texto, solo, en un botón, etc. */
         .icono { display: inline-block; vertical-align: -0.15em; flex-shrink: 0; }
+
+        /* Foco visible: la app tiene miles de clases sueltas escritas a mano y
+           ninguna define un estado de foco, así que quien navega con teclado no
+           sabe dónde está parado. Mismo criterio que el modo oscuro de arriba:
+           se define una vez acá en vez de tocar cada elemento.
+           Se usa :focus-visible (no :focus) para que el anillo aparezca al
+           tabular pero NO al hacer clic con el mouse, que es lo que espera
+           cualquiera y evita que la interfaz se sienta "ruidosa". */
+        :focus-visible {
+            outline: 2px solid #4c52d6;
+            outline-offset: 2px;
+            border-radius: 4px;
+        }
+        html.dark :focus-visible { outline-color: #97a3f0; }
+        /* En el área de impresión el anillo no tiene sentido (no hay foco en
+           papel) y podría llegar a dibujarse en el PDF. */
+        @media print { :focus-visible { outline: none; } }
+
+        /* Respeta a quien pidió menos animación en su sistema (mareos, vértigo,
+           o simplemente preferencia): el menú lateral y el switch siguen
+           funcionando igual, solo dejan de deslizarse. */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+                scroll-behavior: auto !important;
+            }
+        }
     </style>
 </head>
 <body class="bg-slate-50 min-h-screen font-sans overflow-x-hidden" id="cuerpoPrincipal">
@@ -118,7 +163,8 @@
     <!-- PANTALLA DE LOGIN -->
     <section id="pantallaLogin" class="min-h-screen flex items-center justify-center px-4 hidden">
         <div class="bg-white p-8 rounded-xl shadow-sm border border-slate-200 max-w-sm w-full">
-            <h1 class="text-2xl font-bold text-slate-900 tracking-tight mb-1 text-center">SociaBoss</h1>
+            <img src="/icons/icon-192.png" alt="" width="52" height="52" class="mx-auto mb-3 rounded-xl shadow-sm">
+            <h1 class="text-2xl font-bold text-slate-900 tracking-tight mb-1 text-center">Cultura Tejida</h1>
             <p class="text-sm text-slate-500 mb-6 text-center">Ingresa con tu cuenta para continuar.</p>
             <form id="formLogin" class="space-y-3">
                 <div>
@@ -258,12 +304,12 @@
                 <button id="btnMenuHamburguesa" onclick="alternarMenuPrincipal()" aria-label="Abrir menú" aria-expanded="false" class="text-slate-500 hover:bg-slate-100 hover:text-slate-700 p-2 rounded-lg transition-colors"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg></button>
             </div>
             <div class="flex items-center space-x-2">
-                <h1 class="text-base font-bold text-slate-800">SociaBoss</h1>
+                <h1 class="text-base font-bold text-slate-800">Cultura Tejida</h1>
                 <span id="badgeRol" class="bg-slate-100 text-slate-600 text-[11px] font-bold px-2 py-0.5 rounded-full">...</span>
             </div>
             <div class="relative order-last w-full sm:order-none sm:w-56">
                 <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.2" y2="16.2"/></svg>
-                <input type="text" id="inputBusquedaGlobal" oninput="buscarGlobal()" onfocus="buscarGlobal()" placeholder="Buscar orden, cierre, usuario..." autocomplete="off" class="w-full text-sm border border-slate-300 rounded-lg pl-8 pr-3 py-1.5">
+                <input type="search" id="inputBusquedaGlobal" oninput="buscarGlobal()" onfocus="buscarGlobal()" placeholder="Buscar orden, cierre, usuario..." aria-label="Buscar orden, cierre o usuario" autocomplete="off" class="w-full text-sm border border-slate-300 rounded-lg pl-8 pr-3 py-1.5">
                 <div id="resultadosBusquedaGlobal" class="hidden absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-80 overflow-auto z-50 text-sm"></div>
             </div>
             <div class="flex flex-wrap items-center gap-3">
@@ -980,16 +1026,14 @@
 
    <script>
         // ══════════════════════════════════════════════════════════════
-        // MODO OSCURO — se aplica antes que nada más para que no haya un
-        // "flash" de tema claro al cargar si el usuario ya eligió oscuro.
+        // MODO OSCURO — la clase .dark ya la puso el script del <head> (ahí
+        // y no acá, para que no haya un destello de tema claro antes de
+        // pintar). Lo único que falta es reflejar ese estado en el switch
+        // del menú, que recién ahora existe en el DOM.
         // ══════════════════════════════════════════════════════════════
-        (function inicializarModoOscuro() {
-            try {
-                const activo = localStorage.getItem("socia_tema") === "oscuro";
-                document.documentElement.classList.toggle("dark", activo);
-                const switchEl = document.getElementById("switchModoOscuro");
-                if (switchEl) switchEl.checked = activo;
-            } catch (e) { /* modo privado, etc. */ }
+        (function sincronizarSwitchModoOscuro() {
+            const switchEl = document.getElementById("switchModoOscuro");
+            if (switchEl) switchEl.checked = document.documentElement.classList.contains("dark");
         })();
 
         // El switch vive en el menú (checkbox real, no un botón) — su propio
