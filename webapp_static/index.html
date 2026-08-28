@@ -3213,7 +3213,10 @@
                 const esAdminOSuperior = SESION_USUARIO && (SESION_USUARIO.rol === 'admin' || SESION_USUARIO.rol === 'superadmin');
                 document.getElementById("btnInventarioEnviarOdoo").classList.toggle("hidden", !esAdminOSuperior);
                 const esSuperadmin = SESION_USUARIO?.rol === 'superadmin';
-                document.getElementById("inventarioSwitchActivacionWrap").classList.toggle("hidden", !esSuperadmin);
+                // El check de activar/desactivar el módulo lo puede tocar admin
+                // o superadmin; asignar la bodega de Odoo sigue siendo solo
+                // superadmin (es una config más estructural, no del día a día).
+                document.getElementById("inventarioSwitchActivacionWrap").classList.toggle("hidden", !esAdminOSuperior);
                 document.getElementById("inventarioBodegaEditarWrap").classList.toggle("hidden", !esSuperadmin);
                 document.getElementById("inventarioBodegaEditarWrap").classList.toggle("flex", esSuperadmin);
                 document.getElementById("btnInventarioResumenGlobal").classList.toggle("hidden", !esSuperadmin);
@@ -4481,6 +4484,7 @@
                         <td class="px-4 py-3 text-slate-600">${u.tienda || (u.rol !== 'usuario' ? '— (ve todo)' : 'Sin asignar')}</td>
                         <td class="px-4 py-3 text-center">${estadoBadge}</td>
                         <td class="px-4 py-3 text-center space-x-1 whitespace-nowrap">
+                            <button onclick="editarNombreUsuario(${u.id}, '${nombreEscapado}')" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold px-2 py-1 rounded-md">Editar</button>
                             <button onclick="resetPasswordUsuario(${u.id}, '${nombreEscapado}')" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold px-2 py-1 rounded-md inline-flex items-center gap-1">${_ICONO_LLAVE}Contraseña</button>
                             <button onclick="alternarActivoUsuario(${u.id}, ${!u.activo})" class="${u.activo ? 'bg-rose-100 hover:bg-rose-200 text-rose-700' : 'bg-emerald-100 hover:bg-emerald-200 text-emerald-700'} text-[11px] font-semibold px-2 py-1 rounded-md">
                                 ${u.activo ? 'Desactivar' : 'Reactivar'}
@@ -4532,6 +4536,26 @@
                 });
                 const datos = await resp.json();
                 if (!resp.ok) throw new Error(datos.detail || "No se pudo actualizar el usuario.");
+                cargarUsuarios();
+            } catch (err) {
+                await mostrarAviso("Error: " + err.message);
+            }
+        }
+
+        async function editarNombreUsuario(id, nombreActual) {
+            const nuevo = await mostrarPrompt("Nuevo nombre:", nombreActual);
+            if (!nuevo) return;
+            const nombreLimpio = nuevo.trim();
+            if (!nombreLimpio) { await mostrarAviso("El nombre no puede quedar vacío."); return; }
+            try {
+                const resp = await fetch(`/api/usuarios/${id}`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ nombre: nombreLimpio })
+                });
+                const datos = await resp.json();
+                if (!resp.ok) throw new Error(datos.detail || "No se pudo actualizar el nombre.");
+                mostrarToast("Nombre actualizado.");
                 cargarUsuarios();
             } catch (err) {
                 await mostrarAviso("Error: " + err.message);

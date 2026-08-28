@@ -3310,9 +3310,11 @@ def inventario_obtener_activacion(tienda: str = None, usuario=Depends(obtener_us
 
 
 @app.put("/api/inventario/activacion")
-async def inventario_cambiar_activacion(request: Request, usuario=Depends(requerir_superadmin)):
-    """Interruptor manual por tienda — sin código ni vencimiento. Solo el
-    superadmin puede prender o apagar el módulo de Conteo de Inventario."""
+async def inventario_cambiar_activacion(request: Request, usuario=Depends(requerir_admin)):
+    """Interruptor manual por tienda — sin código ni vencimiento. Admin y
+    superadmin pueden prender o apagar el módulo de Conteo de Inventario
+    (asignar/cambiar la bodega de Odoo sigue siendo solo de superadmin, ver
+    /api/inventario/bodega más abajo)."""
     from config.db_manager import RealDictCursor
     body = await request.json()
     activo = bool(body.get("activo"))
