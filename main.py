@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 import os
 import re
 import shutil
+import tempfile
 import secrets
 import calendar
 import xmlrpc.client
@@ -115,6 +116,16 @@ def _extension_archivo(upload):
     if upload and upload.content_type == "application/pdf":
         return "pdf"
     return "jpg"
+
+
+def _ruta_temporal(nombre_sugerido):
+    """Ruta para un archivo temporal ANTES de subirlo a Drive (nunca queda
+    ahí — se borra apenas termina la subida). Tiene que ser el directorio
+    temporal real del sistema (tempfile.gettempdir()), no una ruta relativa
+    al directorio de trabajo: en el runtime serverless de Vercel, todo lo
+    demás es de solo lectura — escribir ahí tira "Read-only file system"."""
+    nombre_seguro = os.path.basename(nombre_sugerido or "archivo")
+    return os.path.join(tempfile.gettempdir(), f"cultura_{secrets.token_hex(8)}_{nombre_seguro}")
 
 # Categorías fijas del Reporte de Cuadre, en este orden exacto. El nombre real
 # del método de "efectivo" en Odoo varía por tienda (ej. "Caja Lemaler Quito"),
@@ -914,7 +925,7 @@ async def subir_comprobante_venta(
         from config.db_manager import RealDictCursor
 
         orden_limpia = orden_id.replace("/", "-").replace(" ", "_")
-        ruta_t = f"temp_comp_{comprobante.filename}"
+        ruta_t = _ruta_temporal(f"comp_{comprobante.filename}")
 
         with open(ruta_t, "wb") as b:
             shutil.copyfileobj(comprobante.file, b)
@@ -1447,19 +1458,19 @@ async def registrar_sesion_cierre(
         tienda_limpio = tienda_nombre.replace(" ", "-")
         
         if archivo_resumen:
-            ruta_t = f"temp_resumen_{archivo_resumen.filename}"
+            ruta_t = _ruta_temporal(f"resumen_{archivo_resumen.filename}")
             with open(ruta_t, "wb") as b: shutil.copyfileobj(archivo_resumen.file, b)
             id_resumen = subir_archivo_a_drive(ruta_t, f"{fecha}_{tienda_limpio}_RESUMEN.{_extension_archivo(archivo_resumen)}", archivo_resumen.content_type)
             if os.path.exists(ruta_t): os.remove(ruta_t)
 
         if archivo_lote:
-            ruta_t = f"temp_lote_{archivo_lote.filename}"
+            ruta_t = _ruta_temporal(f"lote_{archivo_lote.filename}")
             with open(ruta_t, "wb") as b: shutil.copyfileobj(archivo_lote.file, b)
             id_lote = subir_archivo_a_drive(ruta_t, f"{fecha}_{tienda_limpio}_LOTE.{_extension_archivo(archivo_lote)}", archivo_lote.content_type)
             if os.path.exists(ruta_t): os.remove(ruta_t)
 
         if archivo_deposito:
-            ruta_t = f"temp_deposito_{archivo_deposito.filename}"
+            ruta_t = _ruta_temporal(f"deposito_{archivo_deposito.filename}")
             with open(ruta_t, "wb") as b: shutil.copyfileobj(archivo_deposito.file, b)
             id_deposito = subir_archivo_a_drive(ruta_t, f"{fecha}_{tienda_limpio}_DEPOSITO.{_extension_archivo(archivo_deposito)}", archivo_deposito.content_type)
             if os.path.exists(ruta_t): os.remove(ruta_t)
@@ -3136,7 +3147,7 @@ async def subir_evidencia_tarea(
             raise HTTPException(status_code=403, detail="Esta tarea no es de tu tienda.")
 
         from config.drive_manager import subir_archivo_a_drive
-        ruta_t = f"temp_evidencia_tarea_{tarea_id}_{archivo.filename}"
+        ruta_t = _ruta_temporal(f"evidencia_tarea_{tarea_id}_{archivo.filename}")
         with open(ruta_t, "wb") as b:
             shutil.copyfileobj(archivo.file, b)
         drive_id = subir_archivo_a_drive(ruta_t, f"TAREA_{tarea_id}_{archivo.filename}", archivo.content_type)
