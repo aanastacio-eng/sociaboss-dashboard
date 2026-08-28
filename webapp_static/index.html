@@ -100,6 +100,8 @@
         .switch-perilla { transition: transform 0.15s ease; }
         #switchModoOscuro:checked ~ .switch-track { background-color: #334155; }
         #switchModoOscuro:checked ~ .switch-track .switch-perilla { transform: translateX(16px); }
+        #switchNotificaciones:checked ~ .switch-track { background-color: #4c52d6; }
+        #switchNotificaciones:checked ~ .switch-track .switch-perilla { transform: translateX(16px); }
         /* Mismo patrón para el interruptor de activación del Conteo de Inventario. */
         #inventarioSwitchActivacion:checked ~ .switch-track { background-color: #059669; }
         #inventarioSwitchActivacion:checked ~ .switch-track .switch-perilla { transform: translateX(16px); }
@@ -291,6 +293,15 @@
                     <span class="text-xs font-medium text-slate-500">Modo oscuro</span>
                     <span class="relative inline-block w-9 h-5 shrink-0">
                         <input type="checkbox" id="switchModoOscuro" onchange="alternarModoOscuro()" class="absolute inset-0 opacity-0 cursor-pointer peer">
+                        <span class="switch-track absolute inset-0 rounded-full bg-slate-300 pointer-events-none">
+                            <span class="switch-perilla absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow"></span>
+                        </span>
+                    </span>
+                </label>
+                <label id="wrapSwitchNotificaciones" class="hidden flex items-center justify-between gap-2 px-1 py-2 mb-1 cursor-pointer select-none">
+                    <span class="text-xs font-medium text-slate-500">Notificaciones</span>
+                    <span class="relative inline-block w-9 h-5 shrink-0">
+                        <input type="checkbox" id="switchNotificaciones" onchange="alternarNotificaciones()" class="absolute inset-0 opacity-0 cursor-pointer peer">
                         <span class="switch-track absolute inset-0 rounded-full bg-slate-300 pointer-events-none">
                             <span class="switch-perilla absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow"></span>
                         </span>
@@ -734,9 +745,12 @@
             <section id="pantallaAuditoria" class="bg-white rounded-xl shadow-sm p-6 border border-slate-200/70 hidden flex-1 flex flex-col min-h-0">
                 <div class="flex justify-between items-center border-b pb-3 mb-4">
                     <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2"><svg class="icono text-slate-400" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 5 6v5.5c0 4.5 3 7.7 7 9 4-1.3 7-4.5 7-9V6l-7-2.5Z"/><path d="M9 12l2 2 4-4"/></svg>Registro de Auditoría</h2>
-                    <button onclick="cargarAuditoria()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors inline-flex items-center gap-1.5">
-                        <svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16"/><path d="M3 21v-5h5"/></svg>Actualizar
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <button onclick="exportarAuditoriaCSV()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors inline-flex items-center gap-1.5"><svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5v11"/><path d="M8 10.5l4 4 4-4"/><path d="M4.5 17.5V19a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5v-1.5"/></svg>Exportar CSV</button>
+                        <button onclick="cargarAuditoria()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors inline-flex items-center gap-1.5">
+                            <svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16"/><path d="M3 21v-5h5"/></svg>Actualizar
+                        </button>
+                    </div>
                 </div>
                 <p class="text-xs text-slate-400 mb-4">Últimas 200 acciones sensibles del sistema (creación/edición de usuarios, aprobación o rechazo de cierres, cambios de meta mensual, bloqueos de login).</p>
                 <div class="flex-1 overflow-auto rounded border min-h-0">
@@ -1008,8 +1022,9 @@
 
                 <hr class="my-2">
 
-                <div id="auditoriaBannerDecidido" class="hidden text-xs bg-slate-100 text-slate-600 border border-slate-200 rounded px-3 py-2 text-center font-semibold flex items-center justify-center gap-1.5">
-                    <svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>Este cierre ya fue evaluado — la decisión es inmutable.
+                <div id="auditoriaBannerDecidido" class="hidden text-xs bg-slate-100 text-slate-600 border border-slate-200 rounded px-3 py-2 flex flex-wrap items-center justify-center gap-2">
+                    <span class="font-semibold inline-flex items-center gap-1.5"><svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>Este cierre ya fue evaluado — la decisión es inmutable.</span>
+                    <button onclick="reabrirCierre()" class="bg-slate-700 hover:bg-slate-800 text-white text-[11px] font-semibold px-2.5 py-1 rounded-md transition-colors">Reabrir para editar</button>
                 </div>
                 <div id="auditoriaAccionesDecision" class="flex gap-2 pt-2">
                     <button id="btnAuditoriaRechazar" onclick="procesarVistoBueno(false)" class="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-bold py-2 rounded-lg text-xs transition-colors inline-flex items-center justify-center gap-1.5">
@@ -1103,7 +1118,10 @@
         <div class="bg-white rounded-lg shadow-lg border border-slate-200 max-w-2xl w-full overflow-hidden my-8">
             <div class="bg-slate-800 text-white px-4 py-3 flex justify-between items-center">
                 <h3 class="font-bold text-sm flex items-center gap-1.5"><svg class="icono" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 5 6v5.5c0 4.5 3 7.7 7 9 4-1.3 7-4.5 7-9V6l-7-2.5Z"/><path d="M9 12l2 2 4-4"/></svg>Informe de Auditoría de Inventario</h3>
-                <button onclick="cerrarInformeInventario()" class="text-white hover:text-slate-200 font-bold text-lg">&times;</button>
+                <div class="flex items-center gap-2">
+                    <button onclick="exportarInformeInventarioCSV()" class="text-white hover:text-slate-200 text-xs font-semibold inline-flex items-center gap-1"><svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5v11"/><path d="M8 10.5l4 4 4-4"/><path d="M4.5 17.5V19a1.5 1.5 0 0 0 1.5 1.5h12a1.5 1.5 0 0 0 1.5-1.5v-1.5"/></svg>CSV</button>
+                    <button onclick="cerrarInformeInventario()" class="text-white hover:text-slate-200 font-bold text-lg">&times;</button>
+                </div>
             </div>
             <div id="informeInventarioContenido" class="p-5 space-y-5 max-h-[80vh] overflow-y-auto text-xs"></div>
         </div>
@@ -1178,6 +1196,70 @@
             const activo = document.getElementById("switchModoOscuro").checked;
             document.documentElement.classList.toggle("dark", activo);
             try { localStorage.setItem("socia_tema", activo ? "oscuro" : "claro"); } catch (e) { /* modo privado */ }
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // NOTIFICACIONES PUSH — avisa de tareas nuevas o de que se habilitó
+        // el Conteo de Inventario, sin tener que tener la app abierta.
+        // Si el navegador no soporta Push, o el servidor no tiene las claves
+        // VAPID configuradas, el interruptor del menú se queda oculto.
+        // ══════════════════════════════════════════════════════════════
+        function _urlBase64ToUint8Array(base64String) {
+            const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+            const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+            const rawData = atob(base64);
+            return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
+        }
+
+        async function inicializarPush() {
+            const wrap = document.getElementById("wrapSwitchNotificaciones");
+            if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+            try {
+                const resp = await fetch("/api/push/clave-publica");
+                if (!resp.ok) return; // servidor sin VAPID configurado todavía
+                wrap.classList.remove("hidden");
+                wrap.classList.add("flex");
+                const registro = await navigator.serviceWorker.ready;
+                const suscripcion = await registro.pushManager.getSubscription();
+                document.getElementById("switchNotificaciones").checked = !!suscripcion && Notification.permission === "granted";
+            } catch (e) { /* silencioso: sin esto la app funciona igual */ }
+        }
+
+        async function alternarNotificaciones() {
+            const check = document.getElementById("switchNotificaciones");
+            const registro = await navigator.serviceWorker.ready;
+            if (check.checked) {
+                try {
+                    const permiso = await Notification.requestPermission();
+                    if (permiso !== "granted") { check.checked = false; return; }
+                    const resp = await fetch("/api/push/clave-publica");
+                    const { clave_publica } = await resp.json();
+                    const suscripcion = await registro.pushManager.subscribe({
+                        userVisibleOnly: true,
+                        applicationServerKey: _urlBase64ToUint8Array(clave_publica),
+                    });
+                    await fetch("/api/push/suscribir", {
+                        method: "POST", headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(suscripcion.toJSON()),
+                    });
+                    mostrarToast("Notificaciones activadas.");
+                } catch (e) {
+                    check.checked = false;
+                    await mostrarAviso("No se pudieron activar las notificaciones: " + e.message);
+                }
+            } else {
+                try {
+                    const suscripcion = await registro.pushManager.getSubscription();
+                    if (suscripcion) {
+                        await fetch("/api/push/desuscribir", {
+                            method: "POST", headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ endpoint: suscripcion.endpoint }),
+                        });
+                        await suscripcion.unsubscribe();
+                    }
+                    mostrarToast("Notificaciones desactivadas.");
+                } catch (e) { /* silencioso */ }
+            }
         }
 
         // ══════════════════════════════════════════════════════════════
@@ -1325,7 +1407,14 @@
                 const resp = await fetch("/api/auth/me");
                 if (!resp.ok) throw new Error("sin-sesion");
                 SESION_USUARIO = await resp.json();
-                mostrarApp();
+                mostrarApp(false);
+                // Si se entró desde una notificación push (?ir=tareas, etc.),
+                // esa pantalla gana por sobre la que se venía recordando.
+                const pantallaDestino = params.get("ir");
+                if (pantallaDestino) {
+                    cambiarPantalla(pantallaDestino);
+                    history.replaceState(null, "", window.location.pathname);
+                }
             } catch (e) {
                 mostrarLogin();
             }
@@ -1336,17 +1425,43 @@
             document.getElementById("appShell").classList.add("hidden");
         }
 
-        function mostrarApp() {
+        function mostrarApp(esLoginFresco = false) {
             document.getElementById("pantallaLogin").classList.add("hidden");
             document.getElementById("appShell").classList.remove("hidden");
             aplicarRolEnInterfaz();
+            inicializarPush();
 
             const hoy = new Date().toISOString().split('T')[0];
             document.getElementById("filtroFecha").value = hoy;
 
-            // Siempre se arranca en el Dashboard al iniciar sesión (o al
-            // refrescar) — ya no se recuerda la última pantalla visitada.
-            cambiarPantalla('dashboard');
+            if (esLoginFresco) {
+                // Un login recién hecho a mano (llenaste el formulario) siempre
+                // arranca en el Dashboard, sin importar en qué pantalla haya
+                // quedado guardada una sesión anterior.
+                try { sessionStorage.removeItem("socia_pantalla_actual"); } catch (e) { /* modo privado, etc. */ }
+                cambiarPantalla('dashboard');
+            } else {
+                // Al refrescar (F5) o volver a entrar con la sesión ya activa
+                // (la cookie sigue válida), seguimos en la misma pantalla en la
+                // que estaba — igual que cerrar y volver a abrir el menú. Si esa
+                // pantalla ya no es accesible para el rol actual (ej. cambió de
+                // usuario en la misma pestaña), caemos a "dashboard".
+                const pantallasAdminOSuperior = ['historial', 'usuarios', 'metas'];
+                const pantallasSoloSuperAdmin = ['comisiones', 'auditoria', 'reporteEjecutivo', 'roles'];
+                let pantallaGuardada = 'dashboard';
+                try { pantallaGuardada = sessionStorage.getItem("socia_pantalla_actual") || 'dashboard'; } catch (e) { /* modo privado, etc. */ }
+                const rolActual = SESION_USUARIO.rol;
+                const noEsAdminOSuperior = rolActual !== 'admin' && rolActual !== 'superadmin';
+                if (
+                    (pantallasAdminOSuperior.includes(pantallaGuardada) && noEsAdminOSuperior) ||
+                    (pantallasSoloSuperAdmin.includes(pantallaGuardada) && rolActual !== 'superadmin') ||
+                    (pantallaGuardada === 'kpis' && rolActual === 'admin')
+                ) {
+                    pantallaGuardada = 'dashboard';
+                }
+                cambiarPantalla(pantallaGuardada);
+            }
+
             ejecutarConsultaOdoo();
             actualizarBadgeTareas();
             actualizarBannerInventario();
@@ -1415,7 +1530,7 @@
                 const datos = await resp.json();
                 if (!resp.ok) throw new Error(datos.detail || "No se pudo iniciar sesión.");
                 SESION_USUARIO = datos;
-                mostrarApp();
+                mostrarApp(true);
             } catch (err) {
                 errorEl.innerText = err.message;
                 errorEl.classList.remove("hidden");
@@ -1492,6 +1607,7 @@
 
         async function cerrarSesion() {
             try { await fetch("/api/auth/logout", { method: "POST" }); } catch (e) { /* seguimos igual */ }
+            try { sessionStorage.removeItem("socia_pantalla_actual"); } catch (e) { /* modo privado, etc. */ }
             window.location.reload();
         }
 
@@ -2660,6 +2776,10 @@
                 if (activo && grupoPadre) grupoPadre.open = true;
             });
 
+            // Recordamos en qué pantalla estaba para que un refresh (F5) la
+            // mantenga en vez de siempre volver a Dashboard.
+            try { sessionStorage.setItem("socia_pantalla_actual", pantalla); } catch (e) { /* modo privado, etc. */ }
+
             if (pantalla === 'dashboard') cargarDashboard();
             if (pantalla === 'kpis') cargarKPIs();
             if (pantalla === 'cierre') cargarGraficoCuadre();
@@ -3281,14 +3401,16 @@
                             <div class="h-1.5 rounded-full ${t.pct >= 100 ? 'bg-emerald-500' : 'bg-blue-500'}" style="width:${t.pct}%"></div>
                         </div>`;
                     const progreso = t.pct === null ? '<span class="text-slate-400 italic">sin conteo cargado</span>' : `${t.contados}/${t.total} (${t.pct}%)${barra}`;
+                    const tiendaEscapada = t.tienda.replace(/'/g, "\\'");
                     return `
-                        <tr class="align-top">
+                        <tr onclick="inventarioIrATiendaDesdeResumen('${tiendaEscapada}')" class="align-top cursor-pointer hover:bg-slate-50" title="Ver el conteo de ${t.tienda}">
                             <td class="px-3 py-2 font-semibold text-slate-700">${t.tienda}</td>
                             <td class="px-3 py-2 text-slate-400">${t.bodega_odoo || '—'}</td>
                             <td class="px-3 py-2">${estadoBadge}</td>
                             <td class="px-3 py-2 text-slate-500">${t.ubicacion_activa || '—'}</td>
                             <td class="px-3 py-2 min-w-[140px]">${progreso}</td>
                             <td class="px-3 py-2 text-slate-400 whitespace-nowrap">${t.actualizado_en || '—'}</td>
+                            <td class="px-3 py-2 text-blue-600 font-semibold whitespace-nowrap">Ver →</td>
                         </tr>`;
                 }).join('');
                 cont.innerHTML = `
@@ -3301,6 +3423,7 @@
                                 <th class="px-3 py-2 text-left">Ubicación cargada</th>
                                 <th class="px-3 py-2 text-left">Progreso</th>
                                 <th class="px-3 py-2 text-left">Últ. actividad</th>
+                                <th class="px-3 py-2 text-left"></th>
                             </tr>
                         </thead>
                         <tbody class="divide-y">${filas}</tbody>
@@ -3312,6 +3435,16 @@
 
         function cerrarResumenGlobalInventario() {
             document.getElementById("modalResumenGlobalInventario").classList.add("hidden");
+        }
+
+        // Un clic en una fila del resumen global lleva directo al conteo de
+        // esa tienda — antes había que cerrar el modal y cambiar el selector
+        // de arriba a mano.
+        function inventarioIrATiendaDesdeResumen(tienda) {
+            cerrarResumenGlobalInventario();
+            document.getElementById("selectorTienda").value = tienda;
+            filtrarPorLocal();
+            inventarioCargarActivacion();
         }
 
         async function inventarioCambiarActivacion(activo) {
@@ -3522,6 +3655,8 @@
             document.getElementById("modalHistorialDiaInventario").classList.add("hidden");
         }
 
+        let INVENTARIO_INFORME_MEMORIA = null;
+
         async function inventarioGenerarInforme() {
             const tienda = _inventarioTiendaActual();
             const cont = document.getElementById("informeInventarioContenido");
@@ -3536,6 +3671,7 @@
                 const resp = await fetch(`/api/inventario/informe?tienda=${encodeURIComponent(tienda)}`);
                 const datos = await resp.json();
                 if (!resp.ok) throw new Error(datos.detail || "No se pudo generar el informe.");
+                INVENTARIO_INFORME_MEMORIA = { tienda, datos };
                 if (datos.sin_datos) {
                     cont.innerHTML = `<p class="text-slate-400 text-center py-4">No hay nada contado todavía para reportar.</p>`;
                     return;
@@ -3573,6 +3709,36 @@
             document.getElementById("modalInformeInventario").classList.add("hidden");
         }
 
+        function exportarInformeInventarioCSV() {
+            if (!INVENTARIO_INFORME_MEMORIA || INVENTARIO_INFORME_MEMORIA.datos.sin_datos) {
+                mostrarToast("No hay datos para exportar.", "error");
+                return;
+            }
+            const { datos } = INVENTARIO_INFORME_MEMORIA;
+            const encabezados = ["Sección", "Producto", "Código", "Stock Sistema", "Contado", "Diferencia", "Actualizado"];
+            const filas = [];
+            const agregarSeccion = (nombre, lista, esNuevo) => {
+                lista.forEach(f => {
+                    if (esNuevo) filas.push([nombre, '', f.barcode, '', f.cantidad, '', f.actualizado_en || '']);
+                    else filas.push([nombre, f.nombre, f.barcode, f.stock_sistema, f.contado_real, f.diferencia, '']);
+                });
+            };
+            agregarSeccion("Faltantes", datos.faltantes, false);
+            agregarSeccion("De más", datos.de_mas, false);
+            agregarSeccion("No reconocidos", datos.nuevos, true);
+            agregarSeccion("Conteo correcto", datos.correctos, false);
+            const csv = [encabezados, ...filas].map(fila => fila.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+            const blob = new Blob(["﻿" + csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `informe_inventario_${INVENTARIO_INFORME_MEMORIA.tienda.replace(/\s+/g, '_')}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        }
+
         async function inventarioEnviarAjusteOdoo() {
             const tienda = _inventarioTiendaActual();
             const confirmado = await mostrarConfirmacion(
@@ -3595,6 +3761,8 @@
         // ══════════════════════════════════════════════════════════════
         // AUDITORÍA (solo admin)
         // ══════════════════════════════════════════════════════════════
+        let AUDITORIA_MEMORIA = [];
+
         async function cargarAuditoria() {
             const cuerpo = document.getElementById("tablaAuditoriaCuerpo");
             cuerpo.innerHTML = `<tr><td colspan="4" class="text-center py-6 text-slate-400">Cargando...</td></tr>`;
@@ -3603,6 +3771,7 @@
                 if (resp.status === 401) { mostrarLogin(); return; }
                 if (!resp.ok) throw new Error("No se pudo cargar la auditoría.");
                 const registros = await resp.json();
+                AUDITORIA_MEMORIA = registros;
                 if (registros.length === 0) {
                     cuerpo.innerHTML = `<tr><td colspan="4" class="text-center py-6 text-slate-400">Sin registros todavía.</td></tr>`;
                     return;
@@ -3618,6 +3787,22 @@
             } catch (e) {
                 cuerpo.innerHTML = `<tr><td colspan="4" class="text-center py-6 text-rose-500"><svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4 22 20.5H2L12 4Z"/><line x1="12" y1="10" x2="12" y2="14.5"/><circle cx="12" cy="17.2" r="0.7" fill="currentColor" stroke="none"/></svg> ${e.message}</td></tr>`;
             }
+        }
+
+        function exportarAuditoriaCSV() {
+            if (AUDITORIA_MEMORIA.length === 0) { mostrarToast("No hay datos para exportar.", "error"); return; }
+            const encabezados = ["Fecha", "Usuario", "Acción", "Detalle"];
+            const filas = AUDITORIA_MEMORIA.map(r => [r.creado_en || '', r.usuario || '', r.accion || '', r.detalle || '']);
+            const csv = [encabezados, ...filas].map(fila => fila.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+            const blob = new Blob(["﻿" + csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `auditoria.csv`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
         }
 
         // ══════════════════════════════════════════════════════════════
@@ -4075,6 +4260,27 @@
                 }
             } catch(e) {
                 await mostrarAviso("Error al procesar la validación en el servidor.");
+            }
+        }
+
+        // Único agujero controlado en la inmutabilidad de un cierre ya
+        // evaluado: lo vuelve a Pendiente para que la tienda pueda corregir
+        // o volver a subir sus documentos (ej. la imagen de depósito).
+        async function reabrirCierre() {
+            const confirmado = await mostrarConfirmacion(
+                "Esto vuelve el cierre a \"Pendiente\" — la tienda va a poder volver a subir/corregir sus documentos, y vas a tener que evaluarlo de nuevo. ¿Seguro?",
+                { textoAceptar: "Sí, reabrir" }
+            );
+            if (!confirmado) return;
+            try {
+                const resp = await fetch(`/api/cierres/${ID_CIERRE_ACTUAL_AUDITORIA}/reabrir`, { method: "PUT" });
+                const datos = await resp.json();
+                if (!resp.ok) throw new Error(datos.detail || "No se pudo reabrir el cierre.");
+                mostrarToast("Cierre reabierto — volvió a Pendiente.");
+                cerrarModalAuditoria();
+                cargarHistorialCierres();
+            } catch (e) {
+                await mostrarAviso("Error: " + e.message);
             }
         }
 

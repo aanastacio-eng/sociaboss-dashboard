@@ -45,3 +45,37 @@ self.addEventListener("fetch", (event) => {
             .catch(() => caches.match(event.request))
     );
 });
+
+// ── Notificaciones push (tareas nuevas, inventario habilitado) ──
+self.addEventListener("push", (event) => {
+    let datos = { titulo: "Cultura Tejida", cuerpo: "" };
+    try {
+        if (event.data) datos = event.data.json();
+    } catch (e) {
+        if (event.data) datos.cuerpo = event.data.text();
+    }
+    event.waitUntil(
+        self.registration.showNotification(datos.titulo || "Cultura Tejida", {
+            body: datos.cuerpo || "",
+            icon: "/icons/icon-192.png",
+            badge: "/icons/icon-192.png",
+            data: { url: datos.url || "/" },
+        })
+    );
+});
+
+self.addEventListener("notificationclick", (event) => {
+    event.notification.close();
+    const url = (event.notification.data && event.notification.data.url) || "/";
+    event.waitUntil(
+        self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((lista) => {
+            for (const cliente of lista) {
+                if (cliente.url.includes(self.location.origin) && "focus" in cliente) {
+                    cliente.navigate(url);
+                    return cliente.focus();
+                }
+            }
+            if (self.clients.openWindow) return self.clients.openWindow(url);
+        })
+    );
+});

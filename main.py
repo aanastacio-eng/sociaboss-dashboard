@@ -1488,6 +1488,8 @@ async def registrar_sesion_cierre(
             "completado": bool(completado),
             "mensaje": "Documentos y órdenes de cierre procesados correctamente."
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
@@ -1676,6 +1678,38 @@ async def validar_cierre(request: Request, admin=Depends(requerir_admin)):
         _registrar_auditoria(cursor, admin, "aprobar_cierre" if aprobado else "rechazar_cierre", f"cierre_id={cierre_id or 'último pendiente'}")
         conexion.commit()
         return {"status": "success", "mensaje": "Estado de cierre actualizado con éxito en PostgreSQL."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+@app.put("/api/cierres/{cierre_id}/reabrir")
+async def reabrir_cierre(cierre_id: int, admin=Depends(requerir_admin)):
+    """Único agujero controlado en la inmutabilidad de /validar: un cierre ya
+    Aprobado o Rechazado vuelve a quedar Pendiente, para que la tienda pueda
+    volver a subir/corregir sus documentos (ej. la imagen de depósito) desde
+    /api/cierres/registrar-sesion — ese endpoint ya acepta re-subir mientras
+    completado quede en 0. Reservado a admin/superadmin, y queda auditado."""
+    from config.db_manager import RealDictCursor
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        cursor.execute("SELECT completado, fecha, tienda_id FROM cierres_diarios WHERE id = %s", (cierre_id,))
+        registro = cursor.fetchone()
+        if not registro:
+            raise HTTPException(status_code=404, detail="No se encontró ese cierre.")
+        if registro["completado"] not in (1, 2):
+            raise HTTPException(status_code=400, detail="Este cierre ya está pendiente — no hace falta reabrirlo.")
+
+        estado_anterior = "aprobado" if registro["completado"] == 1 else "rechazado"
+        cursor.execute("UPDATE cierres_diarios SET completado = 0 WHERE id = %s", (cierre_id,))
+        _registrar_auditoria(cursor, admin, "reabrir_cierre", f"cierre_id={cierre_id} (estaba {estado_anterior}) — vuelve a pendiente para editar")
+        conexion.commit()
+        return {"status": "success"}
     except HTTPException:
         raise
     except Exception as e:
@@ -2955,6 +2989,7 @@ def _sincronizar_tareas_odoo(cursor):
         mapa_usuario_a_tienda = {u['id']: u['name'] for u in usuarios_odoo}
         if not mapa_usuario_a_tienda:
             return
+        tareas_nuevas_por_tienda = {}
 
         tareas_odoo = models.execute_kw(
             ODOO_DB, uid, ODOO_PASSWORD, 'project.task', 'search_read',
@@ -2989,6 +3024,10 @@ def _sincronizar_tareas_odoo(cursor):
         if fecha_limite:
             fecha_limite = fecha_limite.split(' ')[0]
 
+        # RETURNING (xmax = 0) es el truco clásico de Postgres para saber, en
+        # el mismo INSERT ... ON CONFLICT, si la fila se acaba de crear
+        # (xmax = 0) o si ya existía y esto fue un UPDATE — así solo se
+        # notifica por tareas genuinamente nuevas, no en cada sincronización.
         cursor.execute("""
             INSERT INTO tareas (odoo_task_id, titulo, descripcion, tienda_id, fecha_limite, prioridad)
             VALUES (%s, %s, %s, %s, %s, %s)
@@ -2996,7 +3035,20 @@ def _sincronizar_tareas_odoo(cursor):
                 titulo = EXCLUDED.titulo, descripcion = EXCLUDED.descripcion,
                 tienda_id = EXCLUDED.tienda_id, fecha_limite = EXCLUDED.fecha_limite,
                 prioridad = EXCLUDED.prioridad
+            RETURNING (xmax = 0) AS es_nueva
         """, (t['id'], t['name'], descripcion, tienda_id, fecha_limite, t.get('priority')))
+        fila_resultado = cursor.fetchone()
+        if fila_resultado and fila_resultado["es_nueva"]:
+            tareas_nuevas_por_tienda.setdefault(tienda_id, []).append(t['name'])
+
+    if tareas_nuevas_por_tienda:
+        for tienda_id, titulos in tareas_nuevas_por_tienda.items():
+            cursor.execute("SELECT id FROM usuarios WHERE tienda_id = %s AND activo = TRUE", (tienda_id,))
+            usuario_ids = [f["id"] for f in cursor.fetchall()]
+            if not usuario_ids:
+                continue
+            mensaje = titulos[0] if len(titulos) == 1 else f"{len(titulos)} tareas nuevas"
+            _enviar_push_a_usuarios(usuario_ids, "Nueva tarea asignada", mensaje, url="/?ir=tareas")
 
 
 def _tarea_publica(f, evidencias=None):
@@ -3331,6 +3383,12 @@ async def inventario_cambiar_activacion(request: Request, usuario=Depends(requer
         """, (tienda_id, activo, usuario["nombre"]))
         _registrar_auditoria(cursor, usuario, "inventario_cambiar_activacion", f"{nombre_tienda}: {'activado' if activo else 'desactivado'}")
         conexion.commit()
+
+        if activo:
+            cursor.execute("SELECT id FROM usuarios WHERE tienda_id = %s AND activo = TRUE", (tienda_id,))
+            usuario_ids = [f["id"] for f in cursor.fetchall()]
+            _enviar_push_a_usuarios(usuario_ids, "Conteo de Inventario habilitado", f"Ya podés empezar a contar en {nombre_tienda}.", url="/?ir=inventario")
+
         return {"status": "success", "activo": activo}
     finally:
         cursor.close()
@@ -4036,6 +4094,123 @@ async def inventario_enviar_ajuste_odoo(request: Request, admin=Depends(requerir
         cursor.close()
         conexion.close()
 
+
+# ─── MÓDULO 10: NOTIFICACIONES PUSH — avisa en el celular/PC cuando hay una
+# tarea nueva asignada a la tienda, o cuando se activa el Conteo de
+# Inventario para esa tienda, sin que nadie tenga que entrar a mirar el
+# Dashboard. Usa el estándar Web Push (el mismo que usan sitios reales) a
+# través del service worker que ya tiene la PWA — no hace falta ninguna app
+# aparte. Sin VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY configuradas en el .env,
+# este módulo queda inactivo sin romper nada más (igual que el Chat sin su
+# API key): el interruptor de "Notificaciones" simplemente no se puede
+# activar. ───
+
+def _vapid_configurado():
+    return bool(os.getenv("VAPID_PUBLIC_KEY") and os.getenv("VAPID_PRIVATE_KEY"))
+
+
+@app.get("/api/push/clave-publica")
+def push_clave_publica(usuario=Depends(obtener_usuario_actual)):
+    clave = os.getenv("VAPID_PUBLIC_KEY")
+    if not clave:
+        raise HTTPException(status_code=503, detail="Las notificaciones push no están configuradas en el servidor todavía.")
+    return {"clave_publica": clave}
+
+
+@app.post("/api/push/suscribir")
+async def push_suscribir(request: Request, usuario=Depends(obtener_usuario_actual)):
+    """Guarda (o actualiza) la suscripción push de este navegador — el
+    endpoint que manda el navegador ya es único por dispositivo/instalación,
+    así que sirve de clave para no duplicar si el usuario la reactiva."""
+    from config.db_manager import RealDictCursor
+    body = await request.json()
+    endpoint = body.get("endpoint")
+    keys = body.get("keys") or {}
+    p256dh, auth = keys.get("p256dh"), keys.get("auth")
+    if not endpoint or not p256dh or not auth:
+        raise HTTPException(status_code=400, detail="Suscripción incompleta.")
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        cursor.execute("""
+            INSERT INTO push_suscripciones (usuario_id, endpoint, p256dh, auth)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (endpoint) DO UPDATE SET
+                usuario_id = EXCLUDED.usuario_id, p256dh = EXCLUDED.p256dh, auth = EXCLUDED.auth
+        """, (usuario["id"], endpoint, p256dh, auth))
+        conexion.commit()
+        return {"status": "success"}
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+@app.post("/api/push/desuscribir")
+async def push_desuscribir(request: Request, usuario=Depends(obtener_usuario_actual)):
+    from config.db_manager import RealDictCursor
+    body = await request.json()
+    endpoint = body.get("endpoint")
+    if not endpoint:
+        raise HTTPException(status_code=400, detail="Falta el endpoint.")
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        cursor.execute("DELETE FROM push_suscripciones WHERE endpoint = %s AND usuario_id = %s", (endpoint, usuario["id"]))
+        conexion.commit()
+        return {"status": "success"}
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+def _enviar_push_a_usuarios(usuario_ids, titulo, cuerpo, url="/"):
+    """Manda una notificación push a todas las suscripciones activas de esos
+    usuarios. Si VAPID no está configurado, o pywebpush no está instalado, o
+    falla por cualquier motivo, no rompe el flujo que la llamó (sincronizar
+    tareas, activar inventario) — solo queda en el log del servidor."""
+    if not usuario_ids or not _vapid_configurado():
+        return
+    try:
+        from pywebpush import webpush, WebPushException
+    except ImportError:
+        return
+
+    from config.db_manager import RealDictCursor
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        cursor.execute("SELECT id, endpoint, p256dh, auth FROM push_suscripciones WHERE usuario_id = ANY(%s)", (list(usuario_ids),))
+        suscripciones = cursor.fetchall()
+        if not suscripciones:
+            return
+        vapid_privada = os.getenv("VAPID_PRIVATE_KEY")
+        vapid_subject = os.getenv("VAPID_SUBJECT") or "mailto:soporte@culturatejida.com"
+        payload = json.dumps({"titulo": titulo, "cuerpo": cuerpo, "url": url})
+        ids_expiradas = []
+        for s in suscripciones:
+            try:
+                webpush(
+                    subscription_info={"endpoint": s["endpoint"], "keys": {"p256dh": s["p256dh"], "auth": s["auth"]}},
+                    data=payload,
+                    vapid_private_key=vapid_privada,
+                    vapid_claims={"sub": vapid_subject},
+                )
+            except WebPushException as e:
+                # 404/410 = el navegador ya no reconoce esa suscripción (se
+                # desinstaló la PWA, se limpió el storage, etc.) — se borra en
+                # vez de seguir intentando mandarle para siempre.
+                if e.response is not None and e.response.status_code in (404, 410):
+                    ids_expiradas.append(s["id"])
+                else:
+                    print(f"No se pudo mandar push a {s['endpoint'][:60]}...: {e}")
+            except Exception as e:
+                print(f"No se pudo mandar push a {s['endpoint'][:60]}...: {e}")
+        if ids_expiradas:
+            cursor.execute("DELETE FROM push_suscripciones WHERE id = ANY(%s)", (ids_expiradas,))
+            conexion.commit()
+    finally:
+        cursor.close()
+        conexion.close()
 
 
 # ─── BLOQUE DE ARRANQUE NORMAL DE UVICORN ───
