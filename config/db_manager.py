@@ -350,6 +350,21 @@ def inicializar_base_datos():
         )
     """)
 
+    # Suscripciones de notificaciones push (una por navegador/dispositivo en
+    # el que el usuario activó las notificaciones) — endpoint es único por
+    # navegador, así que sirve como clave de upsert.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS push_suscripciones (
+            id SERIAL PRIMARY KEY,
+            usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+            endpoint TEXT NOT NULL,
+            p256dh TEXT NOT NULL,
+            auth TEXT NOT NULL,
+            creado_en TIMESTAMP NOT NULL DEFAULT NOW(),
+            UNIQUE(endpoint)
+        )
+    """)
+
     conexion.commit()
     cursor.close()
     conexion.close()
