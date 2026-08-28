@@ -16,9 +16,48 @@ def obtener_servicio_drive():
     creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=scopes)
     return build('drive', 'v3', credentials=creds)
 
-def subir_archivo_a_drive(ruta_archivo_local, nombre_destino, mime_type='text/plain'):
+def _obtener_o_crear_carpeta(service, nombre, carpeta_padre_id):
+    """Busca una subcarpeta por nombre dentro de carpeta_padre_id; si no
+    existe, la crea. Devuelve su ID. Las comillas simples del nombre se
+    escapan para la query de Drive (ej. una tienda con apóstrofe en el
+    nombre no rompería la búsqueda)."""
+    nombre_escapado = nombre.replace("'", "\\'")
+    query = (
+        f"name = '{nombre_escapado}' and '{carpeta_padre_id}' in parents "
+        "and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+    )
+    resultado = service.files().list(
+        q=query, fields="files(id, name)",
+        supportsAllDrives=True, includeItemsFromAllDrives=True, corpora="allDrives"
+    ).execute()
+    existentes = resultado.get('files', [])
+    if existentes:
+        return existentes[0]['id']
+
+    carpeta = service.files().create(
+        body={'name': nombre, 'mimeType': 'application/vnd.google-apps.folder', 'parents': [carpeta_padre_id]},
+        fields='id', supportsAllDrives=True
+    ).execute()
+    return carpeta.get('id')
+
+
+def obtener_carpeta_destino(anio, tienda, subcarpeta):
+    """Devuelve el ID de la carpeta Año/Tienda/Subcarpeta (ej. "2026/Lemaler
+    Dorado/Cierres") dentro de la Unidad Compartida, creando en el momento
+    cualquier nivel que todavía no exista. Así Drive queda organizado en vez
+    de tener todos los archivos sueltos en una sola carpeta plana."""
+    service = obtener_servicio_drive()
+    id_anio = _obtener_o_crear_carpeta(service, str(anio), GOOGLE_DRIVE_FOLDER_ID)
+    id_tienda = _obtener_o_crear_carpeta(service, tienda, id_anio)
+    return _obtener_o_crear_carpeta(service, subcarpeta, id_tienda)
+
+
+def subir_archivo_a_drive(ruta_archivo_local, nombre_destino, mime_type='text/plain', carpeta_id=None):
     """
-    Sube cualquier archivo local a la carpeta configurada en la Unidad Compartida.
+    Sube cualquier archivo local a Google Drive. Si se pasa carpeta_id (ver
+    obtener_carpeta_destino), sube ahí; si no, cae en la carpeta raíz de
+    siempre — así los llamados que todavía no organizan por año/tienda
+    (ej. evidencia de tareas) siguen funcionando exactamente igual.
     Devuelve el ID del archivo en Google Drive si la subida fue exitosa.
     """
     if not os.path.exists(ruta_archivo_local):
@@ -27,12 +66,12 @@ def subir_archivo_a_drive(ruta_archivo_local, nombre_destino, mime_type='text/pl
 
     try:
         service = obtener_servicio_drive()
-        
+
         file_metadata = {
             'name': nombre_destino,
-            'parents': [GOOGLE_DRIVE_FOLDER_ID]
+            'parents': [carpeta_id or GOOGLE_DRIVE_FOLDER_ID]
         }
-        
+
         media = MediaFileUpload(ruta_archivo_local, mimetype=mime_type, resumable=True)
         
         # Subida compatible con la unidad compartida de Workspace
