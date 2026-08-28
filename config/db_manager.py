@@ -44,6 +44,10 @@ def inicializar_base_datos():
             nombre VARCHAR(100) UNIQUE NOT NULL
         )
     """)
+    # Bodega de Odoo asignada a cada tienda (su código de barras de
+    # ubicación, ej. "INV-LD") — el Conteo de Inventario la usa para cargar
+    # SIEMPRE esa misma bodega, sin que nadie tenga que escribirla a mano.
+    cursor.execute("ALTER TABLE tiendas ADD COLUMN IF NOT EXISTS bodega_odoo VARCHAR(50)")
     
     # 2. TABLA: Sesiones de Cierre Diario 
     cursor.execute("""
@@ -257,6 +261,92 @@ def inicializar_base_datos():
             tipo_archivo VARCHAR(100),
             subido_por VARCHAR(150),
             creado_en TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    """)
+
+    # 15. Conteo de Inventario (por código de barras) — portado de un Google
+    #     Apps Script que usaba Google Sheets como base. Acá cada tabla
+    #     reemplaza una hoja de ese script, PERO todo queda separado por
+    #     tienda (el original era una sola ubicación activa global — con
+    #     varias tiendas reales, la segunda que cargara una ubicación le
+    #     borraba el conteo a la primera).
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS inventario_ubicacion_activa (
+            tienda_id INTEGER PRIMARY KEY REFERENCES tiendas(id),
+            ubicacion VARCHAR(200) NOT NULL,
+            actualizado_en TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    """)
+    # location_id de Odoo de la bodega cargada — permite detectar solo, sin
+    # tocar Odoo, si un superadmin reasignó la bodega de la tienda mientras
+    # ya había una sesión de conteo activa (y recargar sola en ese caso).
+    cursor.execute("ALTER TABLE inventario_ubicacion_activa ADD COLUMN IF NOT EXISTS location_id INTEGER")
+    # Catálogo cargado desde Odoo para la ubicación activa de la tienda
+    # (reemplaza la hoja "Productos_Odoo").
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS inventario_productos (
+            id SERIAL PRIMARY KEY,
+            tienda_id INTEGER NOT NULL REFERENCES tiendas(id),
+            producto_ref VARCHAR(150) NOT NULL,
+            nombre VARCHAR(300),
+            barcode VARCHAR(150),
+            stock_sistema INTEGER NOT NULL DEFAULT 0,
+            contado_real INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(tienda_id, producto_ref)
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_inv_productos_barcode ON inventario_productos(tienda_id, barcode)")
+    # Códigos escaneados que no matchean ningún producto cargado (reemplaza
+    # "Productos_Nuevos").
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS inventario_productos_nuevos (
+            id SERIAL PRIMARY KEY,
+            tienda_id INTEGER NOT NULL REFERENCES tiendas(id),
+            barcode VARCHAR(150) NOT NULL,
+            cantidad INTEGER NOT NULL DEFAULT 0,
+            actualizado_en TIMESTAMP NOT NULL DEFAULT NOW(),
+            UNIQUE(tienda_id, barcode)
+        )
+    """)
+    # Escaneos crudos pendientes de sumar, uno por fila — cada operario
+    # inserta las suyas y Postgres ya las mantiene aisladas sin necesitar el
+    # candado manual (CacheService) que hacía falta en el script original
+    # cuando todos escribían en la misma hoja de cálculo.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS inventario_escaneos (
+            id SERIAL PRIMARY KEY,
+            tienda_id INTEGER NOT NULL REFERENCES tiendas(id),
+            sesion_id VARCHAR(150) NOT NULL,
+            usuario_nombre VARCHAR(150),
+            ubicacion VARCHAR(200) NOT NULL,
+            codigo VARCHAR(150) NOT NULL,
+            creado_en TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_inv_escaneos_sesion ON inventario_escaneos(tienda_id, sesion_id)")
+    # Archivo histórico de escaneos ya sumados (reemplaza "Config_Archivo").
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS inventario_escaneos_archivo (
+            id SERIAL PRIMARY KEY,
+            tienda_id INTEGER NOT NULL REFERENCES tiendas(id),
+            sesion_id VARCHAR(150),
+            usuario_nombre VARCHAR(150),
+            ubicacion VARCHAR(200),
+            codigo VARCHAR(150),
+            escaneado_en TIMESTAMP,
+            archivado_en TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_inv_archivo_fecha ON inventario_escaneos_archivo(tienda_id, archivado_en)")
+
+    # Conteo de Inventario: módulo aparte que solo funciona en las tiendas que
+    # un superadmin activa explícitamente (interruptor manual, sin código).
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS inventario_activaciones (
+            tienda_id INTEGER PRIMARY KEY REFERENCES tiendas(id),
+            activo BOOLEAN NOT NULL DEFAULT FALSE,
+            activado_por VARCHAR(150),
+            actualizado_en TIMESTAMP NOT NULL DEFAULT NOW()
         )
     """)
 

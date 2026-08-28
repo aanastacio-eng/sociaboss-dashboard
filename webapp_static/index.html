@@ -100,6 +100,9 @@
         .switch-perilla { transition: transform 0.15s ease; }
         #switchModoOscuro:checked ~ .switch-track { background-color: #334155; }
         #switchModoOscuro:checked ~ .switch-track .switch-perilla { transform: translateX(16px); }
+        /* Mismo patrón para el interruptor de activación del Conteo de Inventario. */
+        #inventarioSwitchActivacion:checked ~ .switch-track { background-color: #059669; }
+        #inventarioSwitchActivacion:checked ~ .switch-track .switch-perilla { transform: translateX(16px); }
     </style>
     <style>
         /* Al imprimir, solo se ve el reporte de cuadre — todo lo demás se oculta. */
@@ -277,6 +280,10 @@
                         <button id="btnNavRoles" data-pantalla="roles" onclick="irA('roles')" class="hidden w-full flex items-center gap-3 text-left px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"><svg class="icono text-slate-400" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c0-3 2.5-5.2 5.5-5.2s5.5 2.2 5.5 5.2"/><path d="M15.5 12.5l2 2 3.5-3.5"/></svg>Roles</button>
                     </div>
                 </details>
+
+                <!-- Módulo aparte, independiente de los grupos de función: solo
+                     funciona en las tiendas que un superadmin activa a mano. -->
+                <button data-pantalla="inventario" onclick="irA('inventario')" class="w-full flex items-center gap-3 text-left px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"><svg class="icono text-slate-400" width="17" height="17" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="4" y="5" width="1.6" height="14"/><rect x="7.2" y="5" width="1.6" height="14"/><rect x="10.4" y="5" width="3.2" height="14"/><rect x="15.2" y="5" width="1.6" height="14"/><rect x="18.4" y="5" width="2.4" height="14"/></svg>Conteo de Inventario</button>
             </div>
             <div class="border-t border-slate-200 p-4">
                 <p id="nombreUsuarioHeader" class="text-xs font-medium text-slate-500 mb-2"></p>
@@ -328,6 +335,9 @@
                         <option value="Mariola Village">Mariola Village</option>
                         <option value="Mariola Ceibos">Mariola Ceibos</option>
                         <option value="Lemaler Scala">Lemaler Scala</option>
+                        <option value="Mall del Sol">Mall del Sol</option>
+                        <option value="Paseo San Francisco">Paseo San Francisco</option>
+                        <option value="Central">Central</option>
                     </select>
                 </div>
             </div>
@@ -345,6 +355,10 @@
                     <button id="bannerTareasDashboard" onclick="irA('tareas')" class="hidden w-full text-left bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-4 py-3 text-sm font-medium flex items-center justify-between gap-3 hover:bg-amber-100 transition-colors">
                         <span class="flex items-center gap-2"><svg class="icono shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12.5l2.5 2.5L16 9"/></svg><span id="bannerTareasDashboardTexto"></span></span>
                         <span class="text-xs font-semibold whitespace-nowrap">Ver tareas →</span>
+                    </button>
+                    <button id="bannerInventarioDashboard" onclick="irA('inventario')" class="hidden w-full text-left bg-blue-50 border border-blue-200 text-blue-800 rounded-xl px-4 py-3 text-sm font-medium flex items-center justify-between gap-3 hover:bg-blue-100 transition-colors">
+                        <span class="flex items-center gap-2"><svg class="icono shrink-0" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="4" y="5" width="1.6" height="14"/><rect x="7.2" y="5" width="1.6" height="14"/><rect x="10.4" y="5" width="3.2" height="14"/><rect x="15.2" y="5" width="1.6" height="14"/><rect x="18.4" y="5" width="2.4" height="14"/></svg><span id="bannerInventarioDashboardTexto"></span></span>
+                        <span class="text-xs font-semibold whitespace-nowrap">Ver conteo →</span>
                     </button>
                     <div id="dashboardResumenCards" class="grid grid-cols-1 sm:grid-cols-3 gap-3"></div>
                     <div>
@@ -517,6 +531,9 @@
                             <option value="Mariola Village">Mariola Village</option>
                             <option value="Mariola Ceibos">Mariola Ceibos</option>
                             <option value="Lemaler Scala">Lemaler Scala</option>
+                            <option value="Mall del Sol">Mall del Sol</option>
+                            <option value="Paseo San Francisco">Paseo San Francisco</option>
+                            <option value="Central">Central</option>
                         </select>
                     </div>
                     <div>
@@ -660,6 +677,9 @@
                             <option value="Mariola Village">Mariola Village</option>
                             <option value="Mariola Ceibos">Mariola Ceibos</option>
                             <option value="Lemaler Scala">Lemaler Scala</option>
+                            <option value="Mall del Sol">Mall del Sol</option>
+                            <option value="Paseo San Francisco">Paseo San Francisco</option>
+                            <option value="Central">Central</option>
                         </select>
                     </div>
                     <div class="sm:col-span-2">
@@ -793,6 +813,89 @@
                 <p class="text-xs text-slate-400 mb-4">Las tareas se asignan desde Odoo (a la tienda). Acá se actualiza el avance y, si es una tarea completada, el superadmin la revisa.</p>
                 <div id="tareasContenedor" class="flex-1 overflow-auto space-y-3">
                     <p class="text-slate-400 text-sm italic text-center py-8">Cargando...</p>
+                </div>
+            </section>
+
+            <section id="pantallaInventario" class="bg-white rounded-xl shadow-sm p-6 border border-slate-200/70 hidden flex-1 flex flex-col min-h-0">
+                <div class="flex justify-between items-center border-b pb-3 mb-4 flex-wrap gap-2">
+                    <h2 class="text-lg font-bold text-slate-800 flex items-center gap-2"><svg class="icono text-slate-400" width="19" height="19" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="4" y="5" width="1.6" height="14"/><rect x="7.2" y="5" width="1.6" height="14"/><rect x="10.4" y="5" width="3.2" height="14"/><rect x="15.2" y="5" width="1.6" height="14"/><rect x="18.4" y="5" width="2.4" height="14"/></svg>Conteo de Inventario</h2>
+                    <div class="flex items-center gap-3">
+                        <span id="inventarioOperariosActivos" class="text-xs text-slate-400"></span>
+                        <button id="btnInventarioResumenGlobal" onclick="inventarioAbrirResumenGlobal()" class="hidden bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-3 py-1.5 rounded-md transition-colors">Resumen de todas las tiendas</button>
+                        <label id="inventarioSwitchActivacionWrap" class="hidden flex items-center gap-2 cursor-pointer select-none">
+                            <span class="text-xs font-semibold text-slate-500">Módulo activo en esta tienda</span>
+                            <span class="relative inline-block w-9 h-5 shrink-0">
+                                <input type="checkbox" id="inventarioSwitchActivacion" onchange="inventarioCambiarActivacion(this.checked)" class="absolute inset-0 opacity-0 cursor-pointer peer">
+                                <span class="switch-track absolute inset-0 rounded-full bg-slate-300 pointer-events-none">
+                                    <span class="switch-perilla absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full shadow"></span>
+                                </span>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Bodega asignada: cada tienda tiene UNA sola, fija — nadie la
+                     escribe a mano. Solo el superadmin puede reasignarla acá. -->
+                <div class="flex flex-wrap items-center justify-between gap-2 mb-3 text-xs bg-slate-50 border rounded-lg px-3 py-2">
+                    <span class="text-slate-500">Bodega de Odoo asignada a esta tienda: <strong id="inventarioBodegaCodigo" class="text-slate-800">—</strong></span>
+                    <div id="inventarioBodegaEditarWrap" class="hidden items-center gap-1.5">
+                        <input type="text" id="inventarioBodegaInput" placeholder="Ej: INV-LD" autocomplete="off" class="border p-1.5 rounded text-xs w-28 uppercase">
+                        <button onclick="inventarioGuardarBodega()" class="bg-slate-800 hover:bg-slate-950 text-white text-xs font-semibold px-2.5 py-1.5 rounded-md transition-colors">Guardar</button>
+                    </div>
+                </div>
+
+                <!-- Bloqueado: la tienda no tiene el módulo habilitado. Un superadmin
+                     lo prende con el interruptor de arriba; un admin/usuario normal
+                     solo ve este aviso y no puede tocar nada del conteo. -->
+                <div id="inventarioBloqueado" class="hidden text-center py-12 px-4">
+                    <svg class="mx-auto text-slate-300 mb-3" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/></svg>
+                    <p class="text-slate-600 font-semibold text-sm">Este módulo no está activado para esta tienda.</p>
+                    <p class="text-slate-400 text-xs mt-1">Pedile a un superadmin que lo active desde el interruptor de arriba.</p>
+                </div>
+
+                <div id="inventarioModuloContenido">
+                    <div class="flex flex-wrap items-end gap-2 mb-4">
+                        <button onclick="inventarioCargarUbicacion(false)" class="bg-slate-800 hover:bg-slate-950 text-white font-bold px-4 py-2 rounded-lg text-sm transition-colors">Cargar</button>
+                        <button onclick="inventarioCargarUbicacion(true)" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold px-3 py-2 rounded-lg text-xs transition-colors">Reiniciar desde cero</button>
+                    </div>
+
+                    <div id="inventarioSinUbicacion" class="text-slate-400 text-sm italic text-center py-8">Tocá "Cargar" para empezar a contar la bodega asignada a esta tienda. Si ya hay una sesión activa en tu tienda, te unís a ella tal cual está — nadie la pisa.</div>
+
+                    <div id="inventarioContenidoActivo" class="hidden flex-1 flex flex-col min-h-0 space-y-3">
+                        <div class="bg-slate-50 border rounded-xl p-3 flex flex-wrap items-center justify-between gap-2">
+                            <span class="text-xs text-slate-500">Ubicación activa: <strong id="inventarioUbicacionActiva" class="text-slate-800"></strong><span id="inventarioStockActualizadoEn" class="text-slate-400"></span></span>
+                            <div class="flex items-center gap-2">
+                                <button onclick="inventarioActualizarStockSistema()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-3 py-1.5 rounded-md transition-colors">Actualizar Stock Sistema</button>
+                                <button onclick="inventarioVerHistorialDia()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-3 py-1.5 rounded-md transition-colors">Historial del día</button>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center gap-2">
+                            <input type="text" id="inventarioInputEscaneo" placeholder="Escaneá o escribí un código y presioná Enter" autocomplete="off" class="flex-1 border-2 border-blue-300 focus:border-blue-500 outline-none rounded-lg px-3 py-2.5 text-sm">
+                            <button onclick="inventarioDeshacer()" class="bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-semibold px-3 py-2.5 rounded-lg whitespace-nowrap transition-colors">Deshacer último</button>
+                        </div>
+                        <div id="inventarioUltimoEscaneo" class="text-xs text-slate-500 min-h-[1em]"></div>
+
+                        <div class="flex flex-wrap gap-2">
+                            <button onclick="inventarioSumar()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-lg text-sm transition-colors">Sumar a Conteo</button>
+                            <button onclick="inventarioGenerarInforme()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg text-sm transition-colors">Ver Informe de Auditoría</button>
+                            <button id="btnInventarioEnviarOdoo" onclick="inventarioEnviarAjusteOdoo()" class="hidden bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors">Enviar Ajuste a Odoo</button>
+                        </div>
+
+                        <div class="flex-1 overflow-auto border rounded-lg min-h-0">
+                            <table class="min-w-full text-sm text-left">
+                                <thead class="bg-slate-100 text-slate-700 uppercase text-xs font-bold sticky top-0">
+                                    <tr>
+                                        <th class="px-3 py-2">Producto</th>
+                                        <th class="px-3 py-2">Código</th>
+                                        <th class="px-3 py-2 text-right">Stock Sistema</th>
+                                        <th class="px-3 py-2 text-right">Contado</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="inventarioTablaCuerpo" class="divide-y"></tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             </section>
 
@@ -992,6 +1095,39 @@
                     </table>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- MODAL INFORME DE AUDITORÍA DE INVENTARIO -->
+    <div id="modalInformeInventario" onclick="if(event.target === this) cerrarInformeInventario()" class="fixed inset-0 bg-slate-900 bg-opacity-50 flex items-center justify-center hidden z-50 p-4 overflow-y-auto">
+        <div class="bg-white rounded-lg shadow-lg border border-slate-200 max-w-2xl w-full overflow-hidden my-8">
+            <div class="bg-slate-800 text-white px-4 py-3 flex justify-between items-center">
+                <h3 class="font-bold text-sm flex items-center gap-1.5"><svg class="icono" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 5 6v5.5c0 4.5 3 7.7 7 9 4-1.3 7-4.5 7-9V6l-7-2.5Z"/><path d="M9 12l2 2 4-4"/></svg>Informe de Auditoría de Inventario</h3>
+                <button onclick="cerrarInformeInventario()" class="text-white hover:text-slate-200 font-bold text-lg">&times;</button>
+            </div>
+            <div id="informeInventarioContenido" class="p-5 space-y-5 max-h-[80vh] overflow-y-auto text-xs"></div>
+        </div>
+    </div>
+
+    <!-- MODAL HISTORIAL DEL DÍA DE INVENTARIO -->
+    <div id="modalHistorialDiaInventario" onclick="if(event.target === this) cerrarHistorialDiaInventario()" class="fixed inset-0 bg-slate-900 bg-opacity-50 flex items-center justify-center hidden z-50 p-4 overflow-y-auto">
+        <div class="bg-white rounded-lg shadow-lg border border-slate-200 max-w-lg w-full overflow-hidden my-8">
+            <div class="bg-slate-800 text-white px-4 py-3 flex justify-between items-center">
+                <h3 class="font-bold text-sm flex items-center gap-1.5"><svg class="icono" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5.5l4 2.5"/></svg>Historial de Hoy</h3>
+                <button onclick="cerrarHistorialDiaInventario()" class="text-white hover:text-slate-200 font-bold text-lg">&times;</button>
+            </div>
+            <div id="historialDiaInventarioContenido" class="p-5 max-h-[70vh] overflow-y-auto text-xs"></div>
+        </div>
+    </div>
+
+    <!-- MODAL RESUMEN GLOBAL DE INVENTARIO (superadmin) -->
+    <div id="modalResumenGlobalInventario" onclick="if(event.target === this) cerrarResumenGlobalInventario()" class="fixed inset-0 bg-slate-900 bg-opacity-50 flex items-center justify-center hidden z-50 p-4 overflow-y-auto">
+        <div class="bg-white rounded-lg shadow-lg border border-slate-200 max-w-3xl w-full overflow-hidden my-8">
+            <div class="bg-slate-800 text-white px-4 py-3 flex justify-between items-center">
+                <h3 class="font-bold text-sm flex items-center gap-1.5"><svg class="icono" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="10" width="4" height="10"/><rect x="10" y="6" width="4" height="14"/><rect x="17" y="3" width="4" height="17"/></svg>Resumen de Inventario — Todas las Tiendas</h3>
+                <button onclick="cerrarResumenGlobalInventario()" class="text-white hover:text-slate-200 font-bold text-lg">&times;</button>
+            </div>
+            <div id="resumenGlobalInventarioContenido" class="p-5 max-h-[75vh] overflow-y-auto text-xs"></div>
         </div>
     </div>
 
@@ -1208,27 +1344,12 @@
             const hoy = new Date().toISOString().split('T')[0];
             document.getElementById("filtroFecha").value = hoy;
 
-            // Al refrescar (F5) o volver a entrar, seguimos en la misma
-            // pantalla en la que estaba en vez de siempre caer en Órdenes
-            // del Día. Si esa pantalla ya no es accesible para el rol actual
-            // (ej. cambió de usuario en la misma pestaña), caemos a "dashboard".
-            const pantallasAdminOSuperior = ['historial', 'usuarios', 'metas'];
-            const pantallasSoloSuperAdmin = ['comisiones', 'auditoria', 'reporteEjecutivo', 'roles'];
-            let pantallaGuardada = 'dashboard';
-            try { pantallaGuardada = sessionStorage.getItem("socia_pantalla_actual") || 'dashboard'; } catch (e) { /* modo privado, etc. */ }
-            const rolActual = SESION_USUARIO.rol;
-            const noEsAdminOSuperior = rolActual !== 'admin' && rolActual !== 'superadmin';
-            if (
-                (pantallasAdminOSuperior.includes(pantallaGuardada) && noEsAdminOSuperior) ||
-                (pantallasSoloSuperAdmin.includes(pantallaGuardada) && rolActual !== 'superadmin') ||
-                (pantallaGuardada === 'kpis' && rolActual === 'admin')
-            ) {
-                pantallaGuardada = 'dashboard';
-            }
-
-            cambiarPantalla(pantallaGuardada);
+            // Siempre se arranca en el Dashboard al iniciar sesión (o al
+            // refrescar) — ya no se recuerda la última pantalla visitada.
+            cambiarPantalla('dashboard');
             ejecutarConsultaOdoo();
             actualizarBadgeTareas();
+            actualizarBannerInventario();
         }
 
         function aplicarRolEnInterfaz() {
@@ -1371,7 +1492,6 @@
 
         async function cerrarSesion() {
             try { await fetch("/api/auth/logout", { method: "POST" }); } catch (e) { /* seguimos igual */ }
-            try { sessionStorage.removeItem("socia_pantalla_actual"); } catch (e) { /* modo privado, etc. */ }
             window.location.reload();
         }
 
@@ -1565,6 +1685,8 @@
             // refrescamos (solo cuando la pantalla está visible).
             if (!document.getElementById("pantallaKPIs").classList.contains("hidden")) cargarKPIs();
             if (!document.getElementById("pantallaCierre").classList.contains("hidden")) cargarGraficoCuadre();
+            if (!document.getElementById("pantallaInventario").classList.contains("hidden")) inventarioCargarActivacion();
+            actualizarBannerInventario();
         }
 
         // ══════════════════════════════════════════════════════════════
@@ -2515,7 +2637,7 @@
             if (pantallasSoloSuperAdmin.includes(pantalla) && rolActual !== 'superadmin') return;
             if (pantalla === 'kpis' && rolActual === 'admin') return;
 
-            const pantallas = { dashboard: 'pantallaDashboard', ventas: 'pantallaVentas', kpis: 'pantallaKPIs', cierre: 'pantallaCierre', historial: 'pantallaHistorial', metas: 'pantallaMetas', comisiones: 'pantallaComisiones', usuarios: 'pantallaUsuarios', auditoria: 'pantallaAuditoria', reporteEjecutivo: 'pantallaReporteEjecutivo', roles: 'pantallaRoles', tareas: 'pantallaTareas' };
+            const pantallas = { dashboard: 'pantallaDashboard', ventas: 'pantallaVentas', kpis: 'pantallaKPIs', cierre: 'pantallaCierre', historial: 'pantallaHistorial', metas: 'pantallaMetas', comisiones: 'pantallaComisiones', usuarios: 'pantallaUsuarios', auditoria: 'pantallaAuditoria', reporteEjecutivo: 'pantallaReporteEjecutivo', roles: 'pantallaRoles', tareas: 'pantallaTareas', inventario: 'pantallaInventario' };
             Object.entries(pantallas).forEach(([key, id]) => {
                 document.getElementById(id).classList.toggle("hidden", key !== pantalla);
             });
@@ -2538,10 +2660,6 @@
                 if (activo && grupoPadre) grupoPadre.open = true;
             });
 
-            // Recordamos en qué pantalla estaba para que un refresh (F5) la
-            // mantenga en vez de siempre volver a Órdenes del Día.
-            try { sessionStorage.setItem("socia_pantalla_actual", pantalla); } catch (e) { /* modo privado, etc. */ }
-
             if (pantalla === 'dashboard') cargarDashboard();
             if (pantalla === 'kpis') cargarKPIs();
             if (pantalla === 'cierre') cargarGraficoCuadre();
@@ -2559,6 +2677,7 @@
             }
             if (pantalla === 'roles') cargarRoles();
             if (pantalla === 'tareas') cargarTareas();
+            if (pantalla === 'inventario') inicializarInventario();
         }
 
         // ══════════════════════════════════════════════════════════════
@@ -2896,6 +3015,28 @@
             } catch (e) { /* silencioso: no interrumpir el dashboard por esto */ }
         }
 
+        // Recordatorio de conteo de inventario en curso — igual que el de
+        // Tareas: si la tienda tiene el módulo activo y un conteo empezado
+        // que todavía no terminó, se lo recuerda en el Dashboard.
+        async function actualizarBannerInventario() {
+            const bannerDashboard = document.getElementById("bannerInventarioDashboard");
+            if (!bannerDashboard) return;
+            const tienda = _inventarioTiendaActual();
+            if (!tienda) { bannerDashboard.classList.add("hidden"); return; }
+            try {
+                const resp = await fetch(`/api/inventario/mi-progreso?tienda=${encodeURIComponent(tienda)}`);
+                if (!resp.ok) { bannerDashboard.classList.add("hidden"); return; }
+                const datos = await resp.json();
+                if (datos.activo && datos.hay_sesion && !datos.terminado && datos.total > 0) {
+                    document.getElementById("bannerInventarioDashboardTexto").innerText =
+                        `Tenés un conteo de inventario en curso en "${datos.ubicacion}": ${datos.contados}/${datos.total} productos contados.`;
+                    bannerDashboard.classList.remove("hidden");
+                } else {
+                    bannerDashboard.classList.add("hidden");
+                }
+            } catch (e) { bannerDashboard.classList.add("hidden"); }
+        }
+
         // ══════════════════════════════════════════════════════════════
         // CHAT DE CONSULTAS — preguntas en lenguaje natural sobre datos
         // reales (ventas, ranking de tiendas, productos, cierres), vía
@@ -3039,6 +3180,412 @@
                 input.disabled = false;
                 input.focus();
                 renderizarChat();
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // CONTEO DE INVENTARIO POR CÓDIGO DE BARRAS — portado de un Google
+        // Apps Script que usaba Google Sheets. Cada tienda tiene su propia
+        // sesión de conteo; varios operarios de la misma tienda pueden
+        // escanear a la vez sin pisarse (cada escaneo es su propia fila en
+        // el servidor, no hace falta ningún candado del lado del cliente).
+        // ══════════════════════════════════════════════════════════════
+        let INVENTARIO_SESION_ID = null;
+        let INVENTARIO_PRODUCTOS_MEMORIA = [];
+        let INVENTARIO_INICIALIZADO = false;
+
+        function _inventarioTiendaActual() {
+            if (SESION_USUARIO && SESION_USUARIO.rol === 'usuario') return SESION_USUARIO.tienda;
+            return document.getElementById("selectorTienda").value;
+        }
+
+        function inicializarInventario() {
+            if (!INVENTARIO_INICIALIZADO) {
+                INVENTARIO_INICIALIZADO = true;
+                try { INVENTARIO_SESION_ID = sessionStorage.getItem("socia_inventario_sesion"); } catch (e) { /* modo privado, etc. */ }
+                if (!INVENTARIO_SESION_ID) {
+                    INVENTARIO_SESION_ID = 'op-' + Math.random().toString(36).slice(2, 10) + '-' + Date.now();
+                    try { sessionStorage.setItem("socia_inventario_sesion", INVENTARIO_SESION_ID); } catch (e) { /* modo privado, etc. */ }
+                }
+                document.getElementById("inventarioInputEscaneo").addEventListener("keydown", (e) => {
+                    if (e.key === "Enter") { e.preventDefault(); inventarioRegistrarEscaneo(); }
+                });
+                const esAdminOSuperior = SESION_USUARIO && (SESION_USUARIO.rol === 'admin' || SESION_USUARIO.rol === 'superadmin');
+                document.getElementById("btnInventarioEnviarOdoo").classList.toggle("hidden", !esAdminOSuperior);
+                const esSuperadmin = SESION_USUARIO?.rol === 'superadmin';
+                document.getElementById("inventarioSwitchActivacionWrap").classList.toggle("hidden", !esSuperadmin);
+                document.getElementById("inventarioBodegaEditarWrap").classList.toggle("hidden", !esSuperadmin);
+                document.getElementById("inventarioBodegaEditarWrap").classList.toggle("flex", esSuperadmin);
+                document.getElementById("btnInventarioResumenGlobal").classList.toggle("hidden", !esSuperadmin);
+            }
+            inventarioCargarActivacion();
+        }
+
+        // Módulo aparte: antes de mostrar nada del conteo, se chequea si esta
+        // tienda puntual está habilitada. Un superadmin ve además el
+        // interruptor para prenderla/apagarla, y el código de bodega asignado.
+        async function inventarioCargarActivacion() {
+            const tienda = _inventarioTiendaActual();
+            if (!tienda) return;
+            try {
+                const resp = await fetch(`/api/inventario/activacion?tienda=${encodeURIComponent(tienda)}`);
+                if (resp.status === 401) { mostrarLogin(); return; }
+                if (!resp.ok) return;
+                const datos = await resp.json();
+                document.getElementById("inventarioSwitchActivacion").checked = !!datos.activo;
+                document.getElementById("inventarioBloqueado").classList.toggle("hidden", !!datos.activo);
+                document.getElementById("inventarioModuloContenido").classList.toggle("hidden", !datos.activo);
+                document.getElementById("inventarioBodegaCodigo").innerText = datos.bodega_odoo || "sin asignar";
+                document.getElementById("inventarioBodegaInput").value = datos.bodega_odoo || "";
+                if (datos.activo) inventarioCargarEstado();
+            } catch (e) { /* silencioso */ }
+        }
+
+        async function inventarioGuardarBodega() {
+            const tienda = _inventarioTiendaActual();
+            const bodega_odoo = document.getElementById("inventarioBodegaInput").value.trim();
+            try {
+                const resp = await fetch('/api/inventario/bodega', {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tienda, bodega_odoo }),
+                });
+                if (resp.status === 401) { mostrarLogin(); return; }
+                if (!resp.ok) { mostrarToast('No se pudo guardar la bodega.', 'error'); return; }
+                mostrarToast(`Bodega asignada a ${tienda}: ${bodega_odoo || '(sin asignar)'}.`, 'exito');
+                inventarioCargarActivacion();
+            } catch (e) {
+                mostrarToast('No se pudo guardar la bodega.', 'error');
+            }
+        }
+
+        // Panorama de todas las tiendas de un vistazo — solo superadmin.
+        async function inventarioAbrirResumenGlobal() {
+            const modal = document.getElementById("modalResumenGlobalInventario");
+            const cont = document.getElementById("resumenGlobalInventarioContenido");
+            modal.classList.remove("hidden");
+            cont.innerHTML = `<p class="text-slate-400 text-center py-4">Cargando...</p>`;
+            try {
+                const resp = await fetch("/api/inventario/resumen-global");
+                if (resp.status === 401) { mostrarLogin(); return; }
+                const datos = await resp.json();
+                if (!resp.ok) throw new Error(datos.detail || "No se pudo cargar el resumen.");
+                const filas = datos.tiendas.map(t => {
+                    const estadoBadge = t.activo
+                        ? '<span class="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-0.5 rounded-full">ACTIVO</span>'
+                        : '<span class="bg-slate-100 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded-full">APAGADO</span>';
+                    const barra = t.pct === null ? '' : `
+                        <div class="w-full bg-slate-200 rounded-full h-1.5 mt-1">
+                            <div class="h-1.5 rounded-full ${t.pct >= 100 ? 'bg-emerald-500' : 'bg-blue-500'}" style="width:${t.pct}%"></div>
+                        </div>`;
+                    const progreso = t.pct === null ? '<span class="text-slate-400 italic">sin conteo cargado</span>' : `${t.contados}/${t.total} (${t.pct}%)${barra}`;
+                    return `
+                        <tr class="align-top">
+                            <td class="px-3 py-2 font-semibold text-slate-700">${t.tienda}</td>
+                            <td class="px-3 py-2 text-slate-400">${t.bodega_odoo || '—'}</td>
+                            <td class="px-3 py-2">${estadoBadge}</td>
+                            <td class="px-3 py-2 text-slate-500">${t.ubicacion_activa || '—'}</td>
+                            <td class="px-3 py-2 min-w-[140px]">${progreso}</td>
+                            <td class="px-3 py-2 text-slate-400 whitespace-nowrap">${t.actualizado_en || '—'}</td>
+                        </tr>`;
+                }).join('');
+                cont.innerHTML = `
+                    <table class="w-full border rounded overflow-hidden text-[11px]">
+                        <thead class="bg-slate-50 text-slate-500">
+                            <tr>
+                                <th class="px-3 py-2 text-left">Tienda</th>
+                                <th class="px-3 py-2 text-left">Bodega</th>
+                                <th class="px-3 py-2 text-left">Estado</th>
+                                <th class="px-3 py-2 text-left">Ubicación cargada</th>
+                                <th class="px-3 py-2 text-left">Progreso</th>
+                                <th class="px-3 py-2 text-left">Últ. actividad</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y">${filas}</tbody>
+                    </table>`;
+            } catch (e) {
+                cont.innerHTML = `<p class="text-rose-600 text-center py-4">${e.message}</p>`;
+            }
+        }
+
+        function cerrarResumenGlobalInventario() {
+            document.getElementById("modalResumenGlobalInventario").classList.add("hidden");
+        }
+
+        async function inventarioCambiarActivacion(activo) {
+            const tienda = _inventarioTiendaActual();
+            try {
+                const resp = await fetch('/api/inventario/activacion', {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tienda, activo }),
+                });
+                if (resp.status === 401) { mostrarLogin(); return; }
+                if (!resp.ok) { mostrarToast('No se pudo cambiar la activación.', 'error'); document.getElementById("inventarioSwitchActivacion").checked = !activo; return; }
+                mostrarToast(activo ? `Módulo activado para ${tienda}.` : `Módulo desactivado para ${tienda}.`, 'exito');
+                inventarioCargarActivacion();
+            } catch (e) {
+                mostrarToast('No se pudo cambiar la activación.', 'error');
+                document.getElementById("inventarioSwitchActivacion").checked = !activo;
+            }
+        }
+
+        async function inventarioCargarEstado() {
+            const tienda = _inventarioTiendaActual();
+            if (!tienda) return;
+            try {
+                const resp = await fetch(`/api/inventario/estado?tienda=${encodeURIComponent(tienda)}`);
+                if (resp.status === 401) { mostrarLogin(); return; }
+                if (!resp.ok) return;
+                const datos = await resp.json();
+                if (datos.ubicacion_activa) {
+                    document.getElementById("inventarioUbicacionActiva").innerText = datos.ubicacion_activa;
+                    _inventarioMostrarActualizadoEn(datos.actualizado_en);
+                    INVENTARIO_PRODUCTOS_MEMORIA = datos.productos || [];
+                    document.getElementById("inventarioSinUbicacion").classList.add("hidden");
+                    document.getElementById("inventarioContenidoActivo").classList.remove("hidden");
+                    inventarioRenderizarTabla();
+                    inventarioActualizarOperariosActivos();
+                } else {
+                    document.getElementById("inventarioSinUbicacion").classList.remove("hidden");
+                    document.getElementById("inventarioContenidoActivo").classList.add("hidden");
+                }
+            } catch (e) { /* silencioso */ }
+        }
+
+        function inventarioRenderizarTabla() {
+            const cuerpo = document.getElementById("inventarioTablaCuerpo");
+            if (INVENTARIO_PRODUCTOS_MEMORIA.length === 0) {
+                cuerpo.innerHTML = `<tr><td colspan="4" class="text-center py-6 text-slate-400">Ubicación sin stock en sistema.</td></tr>`;
+                return;
+            }
+            cuerpo.innerHTML = INVENTARIO_PRODUCTOS_MEMORIA.map(p => {
+                const clase = p.contado_real === 0 ? '' : (p.contado_real === p.stock_sistema ? 'text-emerald-600 font-semibold' : 'text-amber-600 font-semibold');
+                return `
+                    <tr class="text-xs">
+                        <td class="px-3 py-2">${p.nombre}</td>
+                        <td class="px-3 py-2 text-slate-400">${p.barcode}</td>
+                        <td class="px-3 py-2 text-right">${p.stock_sistema}</td>
+                        <td class="px-3 py-2 text-right ${clase}">${p.contado_real}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        async function inventarioCargarUbicacion(forzarReinicio) {
+            if (forzarReinicio) {
+                const ok = await mostrarConfirmacion("Esto borra el conteo actual de esta tienda y lo vuelve a traer de Odoo desde cero. ¿Seguro?", { textoAceptar: "Sí, reiniciar" });
+                if (!ok) return;
+            }
+            const tienda = _inventarioTiendaActual();
+            try {
+                const resp = await fetch("/api/inventario/cargar-ubicacion", {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ tienda, forzar_reinicio: !!forzarReinicio })
+                });
+                const datos = await resp.json();
+                if (!resp.ok) throw new Error(datos.detail || "No se pudo cargar la ubicación.");
+                INVENTARIO_PRODUCTOS_MEMORIA = datos.productos || [];
+                document.getElementById("inventarioUbicacionActiva").innerText = datos.ubicacion || "";
+                _inventarioMostrarActualizadoEn(datos.actualizado_en);
+                document.getElementById("inventarioSinUbicacion").classList.add("hidden");
+                document.getElementById("inventarioContenidoActivo").classList.remove("hidden");
+                inventarioRenderizarTabla();
+                mostrarToast(datos.unido ? "Te uniste a la sesión de conteo activa." : `Ubicación cargada: ${INVENTARIO_PRODUCTOS_MEMORIA.length} producto(s).`);
+                document.getElementById("inventarioInputEscaneo").focus();
+                actualizarBannerInventario();
+            } catch (e) {
+                await mostrarAviso("Error: " + e.message);
+            }
+        }
+
+        function _inventarioMostrarActualizadoEn(hora) {
+            const span = document.getElementById("inventarioStockActualizadoEn");
+            span.innerText = hora ? ` · stock actualizado ${hora}` : '';
+        }
+
+        // Devuelve true/false según si pudo refrescar — así quien la llama en
+        // silencio (antes del informe) sabe si hubo error, sin mostrar dos avisos.
+        async function inventarioActualizarStockSistema(silencioso = false) {
+            const tienda = _inventarioTiendaActual();
+            try {
+                const resp = await fetch("/api/inventario/actualizar-stock-sistema", {
+                    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tienda })
+                });
+                const datos = await resp.json();
+                if (!resp.ok) throw new Error(datos.detail || "No se pudo actualizar.");
+                INVENTARIO_PRODUCTOS_MEMORIA = datos.productos || [];
+                inventarioRenderizarTabla();
+                _inventarioMostrarActualizadoEn(datos.actualizado_en);
+                if (!silencioso) mostrarToast(`Stock del sistema actualizado (${datos.actualizados} cambiaron). Tu conteo no se tocó.`);
+                return true;
+            } catch (e) {
+                if (!silencioso) await mostrarAviso("Error: " + e.message);
+                return false;
+            }
+        }
+
+        async function inventarioRegistrarEscaneo() {
+            const input = document.getElementById("inventarioInputEscaneo");
+            const codigo = input.value.trim();
+            if (!codigo) return;
+            input.value = "";
+            const ubicacion = document.getElementById("inventarioUbicacionActiva").innerText;
+            const tienda = _inventarioTiendaActual();
+            try {
+                const resp = await fetch("/api/inventario/escanear", {
+                    method: "POST", headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ tienda, sesion_id: INVENTARIO_SESION_ID, ubicacion, codigos: [codigo] })
+                });
+                if (resp.status === 401) { mostrarLogin(); return; }
+                if (!resp.ok) { const d = await resp.json().catch(() => ({})); throw new Error(d.detail || "No se pudo registrar el escaneo."); }
+                document.getElementById("inventarioUltimoEscaneo").innerText = `Último escaneo: ${codigo}`;
+            } catch (e) {
+                document.getElementById("inventarioUltimoEscaneo").innerHTML = `<span class="text-rose-600">${e.message}</span>`;
+            } finally {
+                input.focus();
+            }
+        }
+
+        async function inventarioDeshacer() {
+            const tienda = _inventarioTiendaActual();
+            try {
+                const resp = await fetch("/api/inventario/deshacer", {
+                    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tienda, sesion_id: INVENTARIO_SESION_ID })
+                });
+                const datos = await resp.json();
+                if (!resp.ok) throw new Error(datos.detail || "No se pudo deshacer.");
+                mostrarToast(`Se deshizo el escaneo de "${datos.codigo}".`);
+                document.getElementById("inventarioUltimoEscaneo").innerText = `Deshecho: ${datos.codigo}`;
+            } catch (e) {
+                await mostrarAviso("Error: " + e.message);
+            }
+        }
+
+        async function inventarioSumar() {
+            const tienda = _inventarioTiendaActual();
+            try {
+                const resp = await fetch("/api/inventario/sumar", {
+                    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tienda })
+                });
+                const datos = await resp.json();
+                if (!resp.ok) throw new Error(datos.detail || "No se pudo sumar.");
+                if (datos.sin_novedad) { mostrarToast(datos.mensaje, 'info'); return; }
+                mostrarToast(datos.mensaje);
+                inventarioCargarEstado();
+                actualizarBannerInventario();
+            } catch (e) {
+                await mostrarAviso("Error: " + e.message);
+            }
+        }
+
+        async function inventarioActualizarOperariosActivos() {
+            const tienda = _inventarioTiendaActual();
+            try {
+                const resp = await fetch(`/api/inventario/operarios-activos?tienda=${encodeURIComponent(tienda)}`);
+                if (!resp.ok) return;
+                const datos = await resp.json();
+                document.getElementById("inventarioOperariosActivos").innerText =
+                    datos.activos > 0 ? `${datos.activos} operario(s) con escaneos pendientes de sumar` : '';
+            } catch (e) { /* silencioso */ }
+        }
+
+        async function inventarioVerHistorialDia() {
+            const tienda = _inventarioTiendaActual();
+            const ubicacion = document.getElementById("inventarioUbicacionActiva").innerText;
+            const cont = document.getElementById("historialDiaInventarioContenido");
+            document.getElementById("modalHistorialDiaInventario").classList.remove("hidden");
+            cont.innerHTML = `<p class="text-slate-400 text-center py-4">Cargando...</p>`;
+            try {
+                const resp = await fetch(`/api/inventario/historial-dia?tienda=${encodeURIComponent(tienda)}&ubicacion=${encodeURIComponent(ubicacion)}`);
+                const datos = await resp.json();
+                if (!resp.ok) throw new Error("No se pudo cargar el historial.");
+                if (datos.codigos.length === 0) {
+                    cont.innerHTML = `<p class="text-slate-400 text-center py-4">Todavía no se sumó nada hoy en esta ubicación.</p>`;
+                    return;
+                }
+                cont.innerHTML = `
+                    <p class="text-slate-500 mb-3">${datos.total_escaneos} escaneo(s) sumados hoy (${datos.codigos.length} código(s) distintos).</p>
+                    <table class="w-full text-xs border rounded overflow-hidden">
+                        <thead class="bg-slate-100 text-slate-600"><tr><th class="px-3 py-1.5 text-left">Código</th><th class="px-3 py-1.5 text-right">Cantidad</th><th class="px-3 py-1.5 text-right">Operarios</th></tr></thead>
+                        <tbody class="divide-y">
+                            ${datos.codigos.map(c => `<tr><td class="px-3 py-1.5">${c.codigo}</td><td class="px-3 py-1.5 text-right font-semibold">${c.cantidad}</td><td class="px-3 py-1.5 text-right text-slate-400">${c.operarios}</td></tr>`).join('')}
+                        </tbody>
+                    </table>
+                `;
+            } catch (e) {
+                cont.innerHTML = `<p class="text-rose-600 text-center py-4">${e.message}</p>`;
+            }
+        }
+        function cerrarHistorialDiaInventario() {
+            document.getElementById("modalHistorialDiaInventario").classList.add("hidden");
+        }
+
+        async function inventarioGenerarInforme() {
+            const tienda = _inventarioTiendaActual();
+            const cont = document.getElementById("informeInventarioContenido");
+            document.getElementById("modalInformeInventario").classList.remove("hidden");
+            cont.innerHTML = `<p class="text-slate-400 text-center py-4">Actualizando stock del sistema antes de comparar…</p>`;
+            try {
+                // Se refresca el Stock Sistema justo antes de armar el informe —
+                // si en Odoo hubo una venta mientras se estaba contando, el
+                // informe compara contra el número más fresco posible, no
+                // contra el que había al momento de "Cargar".
+                await inventarioActualizarStockSistema(true);
+                const resp = await fetch(`/api/inventario/informe?tienda=${encodeURIComponent(tienda)}`);
+                const datos = await resp.json();
+                if (!resp.ok) throw new Error(datos.detail || "No se pudo generar el informe.");
+                if (datos.sin_datos) {
+                    cont.innerHTML = `<p class="text-slate-400 text-center py-4">No hay nada contado todavía para reportar.</p>`;
+                    return;
+                }
+
+                function filaProducto(f) {
+                    return `<tr><td class="px-2 py-1">${f.nombre}</td><td class="px-2 py-1 text-slate-400">${f.barcode}</td><td class="px-2 py-1 text-right">${f.stock_sistema}</td><td class="px-2 py-1 text-right">${f.contado_real}</td><td class="px-2 py-1 text-right font-semibold">${f.diferencia > 0 ? '+' : ''}${f.diferencia}</td></tr>`;
+                }
+                function filaNuevo(f) {
+                    return `<tr><td class="px-2 py-1">${f.barcode}</td><td class="px-2 py-1 text-right">${f.cantidad}</td><td class="px-2 py-1 text-slate-400">${f.actualizado_en}</td></tr>`;
+                }
+                function seccion(titulo, color, filas, columnas, renderFila) {
+                    return `
+                        <div>
+                            <h4 class="font-bold uppercase text-[11px] mb-1.5 px-2 py-1 rounded ${color}">${titulo} (${filas.length})</h4>
+                            ${filas.length === 0 ? '<p class="text-slate-400 italic px-2">— vacío —</p>' : `
+                            <table class="w-full border rounded overflow-hidden text-[11px]">
+                                <thead class="bg-slate-50 text-slate-500"><tr>${columnas.map(c => `<th class="px-2 py-1 text-left">${c}</th>`).join('')}</tr></thead>
+                                <tbody class="divide-y">${filas.map(renderFila).join('')}</tbody>
+                            </table>`}
+                        </div>
+                    `;
+                }
+
+                cont.innerHTML =
+                    seccion("Faltantes (stock mayor al contado)", "bg-rose-50 text-rose-700", datos.faltantes, ["Producto", "Código", "Stock", "Contado", "Dif."], filaProducto) +
+                    seccion("De más (contado mayor al stock)", "bg-amber-50 text-amber-700", datos.de_mas, ["Producto", "Código", "Stock", "Contado", "Dif."], filaProducto) +
+                    seccion("No reconocidos (no existen en Odoo)", "bg-blue-50 text-blue-700", datos.nuevos, ["Código", "Cantidad", "Actualizado"], filaNuevo) +
+                    seccion("Conteo correcto", "bg-emerald-50 text-emerald-700", datos.correctos, ["Producto", "Código", "Stock", "Contado", "Dif."], filaProducto);
+            } catch (e) {
+                cont.innerHTML = `<p class="text-rose-600 text-center py-4">${e.message}</p>`;
+            }
+        }
+        function cerrarInformeInventario() {
+            document.getElementById("modalInformeInventario").classList.add("hidden");
+        }
+
+        async function inventarioEnviarAjusteOdoo() {
+            const tienda = _inventarioTiendaActual();
+            const confirmado = await mostrarConfirmacion(
+                "Esto crea un Ajuste de Inventario en Odoo (queda \"En Progreso\" — no se aplica solo, alguien lo tiene que revisar y confirmar ahí). ¿Seguro que ya terminaste de contar?",
+                { textoAceptar: "Sí, enviar a Odoo" }
+            );
+            if (!confirmado) return;
+            try {
+                const resp = await fetch("/api/inventario/enviar-ajuste-odoo", {
+                    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tienda })
+                });
+                const datos = await resp.json();
+                if (!resp.ok) throw new Error(datos.detail || "No se pudo enviar el ajuste.");
+                await mostrarAviso(`Ajuste enviado a Odoo (${datos.productos_enviados} producto(s)). Quedó "En Progreso" — revisalo y confirmalo desde Inventario en Odoo.`, 'bg-emerald-600');
+            } catch (e) {
+                await mostrarAviso("Error: " + e.message);
             }
         }
 

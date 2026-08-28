@@ -3207,6 +3207,835 @@ async def revisar_tarea(tarea_id: int, request: Request, superadmin=Depends(requ
         conexion.close()
 
 
+# ─── MÓDULO 9: CONTEO DE INVENTARIO POR CÓDIGO DE BARRAS — portado de un
+# Google Apps Script que usaba Google Sheets como base (una hoja "Productos_Odoo"
+# por ubicación cargada, una hoja "Config_<sesión>" por operario escaneando).
+# Acá cada tienda tiene su propia ubicación activa (el script original era una
+# sola global: si dos tiendas cargaban una ubicación a la vez, la segunda le
+# borraba el conteo a la primera). Los escaneos son INSERTs individuales en
+# Postgres — como cada operario ya no escribe en un recurso compartido, no
+# hace falta ningún candado manual (CacheService) para evitar que se pisen:
+# eso lo resuelve solo la base de datos. El envío del ajuste a Odoo queda
+# restringido a admin/superadmin (reemplaza la clave de supervisor compartida
+# del script original por el sistema de roles que ya tiene Cultura Tejida).
+TAMANO_LOTE_ODOO_INVENTARIO = 500
+
+
+def _inventario_en_lotes(lista, tam=TAMANO_LOTE_ODOO_INVENTARIO):
+    for i in range(0, len(lista), tam):
+        yield lista[i:i + tam]
+
+
+def _inventario_limpiar_nombre(nombre_sucio, barcode):
+    """Le saca al nombre del producto los códigos técnicos que Odoo antepone
+    (ej. 'MR366-C-3 - Blusa Azul' -> 'Blusa Azul'), igual que hacía el script
+    original a mano en la planilla."""
+    if not nombre_sucio:
+        return "Producto Sin Nombre"
+    limpio = str(nombre_sucio).strip()
+    limpio = re.sub(r'^[A-Z0-9]+-[A-Z0-9]+-[A-Z0-9]*\s*-\s*', '', limpio, flags=re.IGNORECASE)
+    limpio = re.sub(r'^[A-Z0-9]+-[A-Z0-9]+\s*-\s*', '', limpio, flags=re.IGNORECASE)
+    limpio = re.sub(r'^[A-Z0-9]+-[A-Z0-9]+\s+', '', limpio, flags=re.IGNORECASE)
+    limpio = re.sub(r'^\[[^\]]+\]\s*', '', limpio)
+
+    if barcode:
+        barcode_str = str(barcode).strip()
+        if barcode_str:
+            if limpio.startswith(barcode_str):
+                limpio = limpio[len(barcode_str):].strip()
+            if limpio.endswith(barcode_str):
+                limpio = limpio[:-len(barcode_str)].strip()
+
+    partes = re.split(r'\s+-\s+', limpio)
+    if len(partes) > 1 and re.search(r'[0-9]', partes[1]) and len(partes[0]) > 3:
+        limpio = partes[0].strip()
+
+    limpio = re.sub(r'^[\s\-–+]+|[\s\-–+]+$', '', limpio).strip()
+    return limpio or "Producto Sin Nombre"
+
+
+def _inventario_resolver_tienda_id(usuario, tienda_nombre, cursor):
+    if usuario["rol"] == "usuario":
+        if not usuario["tienda_id"]:
+            raise HTTPException(status_code=400, detail="Tu usuario no tiene una tienda asignada.")
+        return usuario["tienda_id"]
+    if not tienda_nombre:
+        raise HTTPException(status_code=400, detail="Debes indicar una tienda.")
+    cursor.execute("SELECT id FROM tiendas WHERE nombre = %s", (tienda_nombre,))
+    fila = cursor.fetchone()
+    if not fila:
+        raise HTTPException(status_code=400, detail=f"No se encontró la tienda '{tienda_nombre}'.")
+    return fila["id"]
+
+
+def _inventario_esta_activo(tienda_id, cursor):
+    cursor.execute("SELECT activo FROM inventario_activaciones WHERE tienda_id = %s", (tienda_id,))
+    fila = cursor.fetchone()
+    return bool(fila and fila["activo"])
+
+
+def _inventario_verificar_activo(tienda_id, cursor):
+    """Módulo aparte: aunque el usuario tenga permiso de rol, esta tienda
+    puntual tiene que estar habilitada por un superadmin (interruptor manual)
+    antes de poder cargar, escanear o sumar conteo."""
+    if not _inventario_esta_activo(tienda_id, cursor):
+        raise HTTPException(status_code=403, detail="El módulo de Conteo de Inventario no está activado para esta tienda. Pedile a un superadmin que lo active.")
+
+
+def _inventario_archivar_y_limpiar_escaneos(cursor, tienda_id):
+    cursor.execute("""
+        INSERT INTO inventario_escaneos_archivo (tienda_id, sesion_id, usuario_nombre, ubicacion, codigo, escaneado_en)
+        SELECT tienda_id, sesion_id, usuario_nombre, ubicacion, codigo, creado_en
+        FROM inventario_escaneos WHERE tienda_id = %s
+    """, (tienda_id,))
+    cursor.execute("DELETE FROM inventario_escaneos WHERE tienda_id = %s", (tienda_id,))
+
+
+@app.get("/api/inventario/activacion")
+def inventario_obtener_activacion(tienda: str = None, usuario=Depends(obtener_usuario_actual)):
+    """Cualquier usuario autenticado puede CONSULTAR si el módulo está
+    habilitado para su tienda (así el frontend sabe si mostrar el conteo o
+    la pantalla de bloqueo) — solo el superadmin puede CAMBIARLO (ver abajo)."""
+    from config.db_manager import RealDictCursor
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        tienda_id = _inventario_resolver_tienda_id(usuario, tienda, cursor)
+        cursor.execute("SELECT bodega_odoo FROM tiendas WHERE id = %s", (tienda_id,))
+        fila = cursor.fetchone()
+        return {"activo": _inventario_esta_activo(tienda_id, cursor), "bodega_odoo": fila["bodega_odoo"] if fila else None}
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+@app.put("/api/inventario/activacion")
+async def inventario_cambiar_activacion(request: Request, usuario=Depends(requerir_superadmin)):
+    """Interruptor manual por tienda — sin código ni vencimiento. Solo el
+    superadmin puede prender o apagar el módulo de Conteo de Inventario."""
+    from config.db_manager import RealDictCursor
+    body = await request.json()
+    activo = bool(body.get("activo"))
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        tienda_id = _inventario_resolver_tienda_id(usuario, body.get("tienda"), cursor)
+        cursor.execute("SELECT nombre FROM tiendas WHERE id = %s", (tienda_id,))
+        nombre_tienda = cursor.fetchone()["nombre"]
+        cursor.execute("""
+            INSERT INTO inventario_activaciones (tienda_id, activo, activado_por, actualizado_en)
+            VALUES (%s, %s, %s, NOW())
+            ON CONFLICT (tienda_id) DO UPDATE SET activo = EXCLUDED.activo, activado_por = EXCLUDED.activado_por, actualizado_en = NOW()
+        """, (tienda_id, activo, usuario["nombre"]))
+        _registrar_auditoria(cursor, usuario, "inventario_cambiar_activacion", f"{nombre_tienda}: {'activado' if activo else 'desactivado'}")
+        conexion.commit()
+        return {"status": "success", "activo": activo}
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+@app.put("/api/inventario/bodega")
+async def inventario_asignar_bodega(request: Request, usuario=Depends(requerir_superadmin)):
+    """Solo el superadmin asigna a cada tienda SU bodega de Odoo (código de
+    barras de la ubicación, ej. 'INV-LD') — una vez asignada, esa tienda
+    siempre carga esa misma bodega, nunca una escrita a mano por error."""
+    from config.db_manager import RealDictCursor
+    body = await request.json()
+    bodega_odoo = (body.get("bodega_odoo") or "").strip().upper() or None
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        tienda_id = _inventario_resolver_tienda_id(usuario, body.get("tienda"), cursor)
+        cursor.execute("SELECT nombre, bodega_odoo AS anterior FROM tiendas WHERE id = %s", (tienda_id,))
+        fila_previa = cursor.fetchone()
+        cursor.execute("UPDATE tiendas SET bodega_odoo = %s WHERE id = %s", (bodega_odoo, tienda_id))
+        _registrar_auditoria(
+            cursor, usuario, "inventario_asignar_bodega",
+            f"{fila_previa['nombre']}: '{fila_previa['anterior'] or '(sin asignar)'}' -> '{bodega_odoo or '(sin asignar)'}'"
+        )
+        conexion.commit()
+        return {"status": "success", "bodega_odoo": bodega_odoo}
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+@app.get("/api/inventario/mi-progreso")
+def inventario_mi_progreso(tienda: str = None, usuario=Depends(obtener_usuario_actual)):
+    """Para el recordatorio del Dashboard: si esta tienda tiene el módulo
+    activo y un conteo en curso sin terminar, cuánto le falta. Nunca da 403
+    aunque el módulo esté apagado — simplemente responde 'activo: false' para
+    que el Dashboard no muestre nada, en vez de romper la pantalla principal."""
+    from config.db_manager import RealDictCursor
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        tienda_id = _inventario_resolver_tienda_id(usuario, tienda, cursor)
+        if not _inventario_esta_activo(tienda_id, cursor):
+            return {"activo": False}
+        cursor.execute("SELECT ubicacion FROM inventario_ubicacion_activa WHERE tienda_id = %s", (tienda_id,))
+        fila_ubi = cursor.fetchone()
+        if not fila_ubi:
+            return {"activo": True, "hay_sesion": False}
+        cursor.execute("""
+            SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE contado_real > 0) AS contados
+            FROM inventario_productos WHERE tienda_id = %s
+        """, (tienda_id,))
+        fila = cursor.fetchone()
+        total, contados = fila["total"], fila["contados"]
+        return {
+            "activo": True, "hay_sesion": True, "ubicacion": fila_ubi["ubicacion"],
+            "total": total, "contados": contados,
+            "terminado": total > 0 and contados >= total,
+        }
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+@app.get("/api/inventario/resumen-global")
+def inventario_resumen_global(usuario=Depends(requerir_superadmin)):
+    """Panorama de TODAS las tiendas para el superadmin: cuáles tienen el
+    módulo activo, qué bodega tienen cargada ahora mismo y cuánto llevan
+    contado — sin tener que entrar tienda por tienda."""
+    from config.db_manager import RealDictCursor
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        cursor.execute("""
+            SELECT
+                t.id, t.nombre, t.bodega_odoo,
+                COALESCE(act.activo, FALSE) AS activo,
+                u.ubicacion AS ubicacion_activa,
+                u.actualizado_en,
+                COUNT(p.id) AS total_productos,
+                COUNT(p.id) FILTER (WHERE p.contado_real > 0) AS productos_contados
+            FROM tiendas t
+            LEFT JOIN inventario_activaciones act ON act.tienda_id = t.id
+            LEFT JOIN inventario_ubicacion_activa u ON u.tienda_id = t.id
+            LEFT JOIN inventario_productos p ON p.tienda_id = t.id
+            GROUP BY t.id, t.nombre, t.bodega_odoo, act.activo, u.ubicacion, u.actualizado_en
+            ORDER BY t.nombre
+        """)
+        filas = []
+        for r in cursor.fetchall():
+            total, contados = r["total_productos"], r["productos_contados"]
+            filas.append({
+                "tienda": r["nombre"], "bodega_odoo": r["bodega_odoo"], "activo": r["activo"],
+                "ubicacion_activa": r["ubicacion_activa"],
+                "actualizado_en": r["actualizado_en"].strftime("%d/%m %H:%M") if r["actualizado_en"] else None,
+                "total": total, "contados": contados,
+                "pct": round(contados / total * 100) if total > 0 else None,
+            })
+        return {"tiendas": filas}
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+@app.get("/api/inventario/estado")
+def inventario_estado(tienda: str = None, usuario=Depends(obtener_usuario_actual)):
+    from config.db_manager import RealDictCursor
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        tienda_id = _inventario_resolver_tienda_id(usuario, tienda, cursor)
+        _inventario_verificar_activo(tienda_id, cursor)
+        cursor.execute("SELECT ubicacion, actualizado_en FROM inventario_ubicacion_activa WHERE tienda_id = %s", (tienda_id,))
+        fila_ubi = cursor.fetchone()
+        cursor.execute("""
+            SELECT producto_ref, nombre, barcode, stock_sistema, contado_real
+            FROM inventario_productos WHERE tienda_id = %s ORDER BY nombre
+        """, (tienda_id,))
+        productos = cursor.fetchall()
+        cursor.execute("SELECT barcode, cantidad FROM inventario_productos_nuevos WHERE tienda_id = %s ORDER BY actualizado_en DESC", (tienda_id,))
+        nuevos = cursor.fetchall()
+        return {
+            "ubicacion_activa": fila_ubi["ubicacion"] if fila_ubi else None,
+            "actualizado_en": fila_ubi["actualizado_en"].strftime("%H:%M:%S") if fila_ubi else None,
+            "productos": productos,
+            "productos_nuevos": nuevos,
+        }
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+@app.post("/api/inventario/cargar-ubicacion")
+async def inventario_cargar_ubicacion(request: Request, usuario=Depends(obtener_usuario_actual)):
+    """Ya NO se recibe una ubicación escrita a mano: cada tienda tiene UNA
+    sola bodega de Odoo asignada (tiendas.bodega_odoo, configurada por un
+    superadmin) y siempre se carga esa — así una tienda nunca puede terminar
+    apuntando por error a la bodega de otra."""
+    from config.db_manager import RealDictCursor
+    body = await request.json()
+    forzar_reinicio = bool(body.get("forzar_reinicio"))
+
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        tienda_id = _inventario_resolver_tienda_id(usuario, body.get("tienda"), cursor)
+        _inventario_verificar_activo(tienda_id, cursor)
+
+        cursor.execute("SELECT nombre, bodega_odoo FROM tiendas WHERE id = %s", (tienda_id,))
+        tienda_row = cursor.fetchone()
+        bodega_odoo = (tienda_row["bodega_odoo"] or "").strip() if tienda_row else ""
+        if not bodega_odoo:
+            nombre_tienda = tienda_row["nombre"] if tienda_row else "Esta tienda"
+            raise HTTPException(status_code=400, detail=f"'{nombre_tienda}' todavía no tiene una bodega de Odoo asignada. Pedile a un superadmin que la configure arriba, en esta misma pantalla.")
+
+        uid, models, tz_odoo = _chat_conectar_odoo()
+        ubicaciones = models.execute_kw(
+            ODOO_DB, uid, ODOO_PASSWORD, 'stock.location', 'search_read',
+            [[['barcode', '=', bodega_odoo]]],
+            {'fields': ['id', 'complete_name'], 'limit': 1}
+        )
+        if not ubicaciones:
+            raise HTTPException(status_code=404, detail=f"La bodega asignada ('{bodega_odoo}') no se encontró en Odoo.")
+        location_id = ubicaciones[0]['id']
+        ubicacion = ubicaciones[0]['complete_name']
+
+        # MULTIUSUARIO + candado contra reasignación: si ya había una sesión
+        # cargada para EL MISMO location_id (no solo el mismo texto) y no se
+        # pidió reinicio, cualquier operario que la vuelva a buscar se "une" a
+        # ella tal cual está — nunca se reinicia sola. Si un superadmin le
+        # reasignó a esta tienda otra bodega, el location_id ya no coincide y
+        # se recarga sola desde Odoo, sin que nadie tenga que acordarse.
+        cursor.execute("SELECT location_id, actualizado_en FROM inventario_ubicacion_activa WHERE tienda_id = %s", (tienda_id,))
+        fila_activa = cursor.fetchone()
+        misma_ubicacion = fila_activa and fila_activa["location_id"] == location_id
+        cursor.execute("SELECT 1 FROM inventario_productos WHERE tienda_id = %s LIMIT 1", (tienda_id,))
+        ya_hay_datos = cursor.fetchone() is not None
+
+        if misma_ubicacion and ya_hay_datos and not forzar_reinicio:
+            cursor.execute("""
+                SELECT producto_ref, nombre, barcode, stock_sistema, contado_real
+                FROM inventario_productos WHERE tienda_id = %s ORDER BY nombre
+            """, (tienda_id,))
+            productos = cursor.fetchall()
+            cursor.execute("SELECT barcode, cantidad FROM inventario_productos_nuevos WHERE tienda_id = %s ORDER BY actualizado_en DESC", (tienda_id,))
+            nuevos = cursor.fetchall()
+            return {
+                "status": "success", "unido": True, "ubicacion": ubicacion, "productos": productos, "productos_nuevos": nuevos,
+                "actualizado_en": fila_activa["actualizado_en"].strftime("%H:%M:%S"),
+            }
+
+        # Solo quants con cantidad distinta de cero (positiva o negativa) — los
+        # productos en cero no se cuentan, así lo pidió el usuario. Sin límite
+        # de resultados: acá no hay paginación con tope como en Apps Script.
+        stock_quants = models.execute_kw(
+            ODOO_DB, uid, ODOO_PASSWORD, 'stock.quant', 'search_read',
+            [[['location_id', '=', location_id], ['quantity', '!=', 0]]],
+            {'fields': ['product_id', 'quantity']}
+        )
+
+        # Se limpia todo lo anterior de ESTA tienda (nunca de otra) — se
+        # archivan los escaneos pendientes primero, nada se pierde.
+        _inventario_archivar_y_limpiar_escaneos(cursor, tienda_id)
+        cursor.execute("DELETE FROM inventario_productos WHERE tienda_id = %s", (tienda_id,))
+        cursor.execute("DELETE FROM inventario_productos_nuevos WHERE tienda_id = %s", (tienda_id,))
+        cursor.execute("""
+            INSERT INTO inventario_ubicacion_activa (tienda_id, ubicacion, location_id, actualizado_en)
+            VALUES (%s, %s, %s, NOW())
+            ON CONFLICT (tienda_id) DO UPDATE SET ubicacion = EXCLUDED.ubicacion, location_id = EXCLUDED.location_id, actualizado_en = NOW()
+            RETURNING actualizado_en
+        """, (tienda_id, ubicacion, location_id))
+        hora_actualizado = cursor.fetchone()["actualizado_en"].strftime("%H:%M:%S")
+
+        if not stock_quants:
+            conexion.commit()
+            return {"status": "success", "unido": False, "ubicacion": ubicacion, "productos": [], "productos_nuevos": [], "actualizado_en": hora_actualizado, "mensaje": "Ubicación sin stock en sistema."}
+
+        product_ids = list({q['product_id'][0] for q in stock_quants})
+        productos_detalle = models.execute_kw(
+            ODOO_DB, uid, ODOO_PASSWORD, 'product.product', 'search_read',
+            [[['id', 'in', product_ids]]],
+            {'fields': ['id', 'name', 'display_name', 'barcode']}
+        )
+
+        # Referencia = el id numérico de Odoo directo — el script original
+        # resolvía además un "external id" (ir.model.data) para cada producto,
+        # pero acá no hace falta: nunca se exporta/importa por external id,
+        # así que esa consulta extra a Odoo se elimina sin perder nada.
+        mapa_productos = {}
+        for p in productos_detalle:
+            barcode_actual = p.get('barcode') or ''
+            texto_base = p.get('name') or p.get('display_name') or "Producto Sin Nombre"
+            mapa_productos[p['id']] = {
+                "producto_ref": str(p['id']),
+                "nombre": _inventario_limpiar_nombre(texto_base, barcode_actual),
+                "barcode": barcode_actual or f"SIN_BARCODE_{p['id']}",
+                "stock_sistema": 0,
+                "contado_real": 0,
+            }
+        for q in stock_quants:
+            pid = q['product_id'][0]
+            if pid in mapa_productos:
+                mapa_productos[pid]["stock_sistema"] += round(q.get('quantity', 0.0) or 0.0)
+
+        filas = list(mapa_productos.values())
+        for f in filas:
+            cursor.execute("""
+                INSERT INTO inventario_productos (tienda_id, producto_ref, nombre, barcode, stock_sistema, contado_real)
+                VALUES (%s, %s, %s, %s, %s, 0)
+                ON CONFLICT (tienda_id, producto_ref) DO UPDATE SET
+                    nombre = EXCLUDED.nombre, barcode = EXCLUDED.barcode, stock_sistema = EXCLUDED.stock_sistema
+            """, (tienda_id, f["producto_ref"], f["nombre"], f["barcode"], f["stock_sistema"]))
+
+        conexion.commit()
+        return {"status": "success", "unido": False, "ubicacion": ubicacion, "productos": filas, "productos_nuevos": [], "actualizado_en": hora_actualizado}
+    except HTTPException:
+        conexion.rollback()
+        raise
+    except Exception as e:
+        conexion.rollback()
+        raise HTTPException(status_code=500, detail=f"Error consultando Odoo: {str(e)}")
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+@app.post("/api/inventario/actualizar-stock-sistema")
+async def inventario_actualizar_stock_sistema(request: Request, usuario=Depends(obtener_usuario_actual)):
+    """Vuelve a consultar Odoo y refresca SOLO 'Stock Sistema' — el conteo
+    real (columna aparte) nunca se toca, a diferencia de 'Reiniciar'."""
+    from config.db_manager import RealDictCursor
+    body = await request.json()
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        tienda_id = _inventario_resolver_tienda_id(usuario, body.get("tienda"), cursor)
+        _inventario_verificar_activo(tienda_id, cursor)
+        cursor.execute("SELECT location_id FROM inventario_ubicacion_activa WHERE tienda_id = %s", (tienda_id,))
+        fila_ubi = cursor.fetchone()
+        if not fila_ubi or not fila_ubi["location_id"]:
+            raise HTTPException(status_code=400, detail="No hay ninguna ubicación cargada para esta tienda.")
+
+        uid, models, tz_odoo = _chat_conectar_odoo()
+        stock_quants = models.execute_kw(
+            ODOO_DB, uid, ODOO_PASSWORD, 'stock.quant', 'search_read',
+            [[['location_id', '=', fila_ubi["location_id"]], ['quantity', '!=', 0]]],
+            {'fields': ['product_id', 'quantity']}
+        )
+        mapa_stock_fresco = {}
+        for q in stock_quants or []:
+            pid = q['product_id'][0]
+            mapa_stock_fresco[pid] = mapa_stock_fresco.get(pid, 0) + round(q.get('quantity', 0.0) or 0.0)
+
+        cursor.execute("SELECT id, producto_ref FROM inventario_productos WHERE tienda_id = %s", (tienda_id,))
+        productos = cursor.fetchall()
+        actualizados = 0
+        for p in productos:
+            try:
+                pid = int(p["producto_ref"])
+            except ValueError:
+                continue
+            nuevo_stock = mapa_stock_fresco.get(pid, 0)
+            cursor.execute("UPDATE inventario_productos SET stock_sistema = %s WHERE id = %s AND stock_sistema != %s", (nuevo_stock, p["id"], nuevo_stock))
+            if cursor.rowcount:
+                actualizados += 1
+
+        # Se marca la hora del refresco — así en pantalla se ve cuán "fresco"
+        # está el Stock Sistema frente a ventas que puedan estar pasando en
+        # Odoo justo mientras se cuenta físicamente.
+        cursor.execute("UPDATE inventario_ubicacion_activa SET actualizado_en = NOW() WHERE tienda_id = %s RETURNING actualizado_en", (tienda_id,))
+        hora_actualizado = cursor.fetchone()["actualizado_en"].strftime("%H:%M:%S")
+
+        conexion.commit()
+        cursor.execute("""
+            SELECT producto_ref, nombre, barcode, stock_sistema, contado_real
+            FROM inventario_productos WHERE tienda_id = %s ORDER BY nombre
+        """, (tienda_id,))
+        return {"status": "success", "actualizados": actualizados, "actualizado_en": hora_actualizado, "productos": cursor.fetchall()}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error consultando Odoo: {str(e)}")
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+@app.post("/api/inventario/escanear")
+async def inventario_escanear(request: Request, usuario=Depends(obtener_usuario_actual)):
+    from config.db_manager import RealDictCursor
+    body = await request.json()
+    codigos = body.get("codigos") or []
+    sesion_id = (body.get("sesion_id") or "").strip()
+    ubicacion = (body.get("ubicacion") or "").strip()
+    if not sesion_id or not ubicacion:
+        raise HTTPException(status_code=400, detail="Falta sesión o ubicación.")
+    codigos_limpios = [str(c).strip() for c in codigos if str(c).strip()]
+    if not codigos_limpios:
+        raise HTTPException(status_code=400, detail="No se recibió ningún código para registrar.")
+
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        tienda_id = _inventario_resolver_tienda_id(usuario, body.get("tienda"), cursor)
+        _inventario_verificar_activo(tienda_id, cursor)
+        # Candado COMPARTIDO: muchos escaneos a la vez conviven sin bloquearse
+        # entre sí, pero un "Sumar" (que pide el candado exclusivo) espera a
+        # que esta transacción termine antes de agrupar — así ningún escaneo
+        # que entra justo en el instante del "Sumar" queda afuera del conteo.
+        cursor.execute("SELECT pg_advisory_xact_lock_shared(%s)", (tienda_id,))
+        for codigo in codigos_limpios:
+            cursor.execute("""
+                INSERT INTO inventario_escaneos (tienda_id, sesion_id, usuario_nombre, ubicacion, codigo)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (tienda_id, sesion_id, usuario["nombre"], ubicacion, codigo))
+        conexion.commit()
+        return {"status": "success", "cantidad": len(codigos_limpios)}
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+@app.post("/api/inventario/sumar")
+async def inventario_sumar(request: Request, usuario=Depends(obtener_usuario_actual)):
+    """Agrupa TODOS los escaneos pendientes de la tienda (de cualquier
+    operario) y los suma a 'Contado Real'. El candado EXCLUSIVO de transacción
+    (pg_advisory_xact_lock) hace dos cosas: evita que dos 'Sumar' de la misma
+    tienda cuenten el mismo escaneo dos veces, Y espera a que terminen los
+    escaneos en curso (que piden el candado COMPARTIDO en /escanear) antes de
+    agrupar — así un escaneo que entra justo en el instante del 'Sumar' nunca
+    queda afuera del conteo. Se libera solo al terminar la transacción, sin
+    necesidad del candado manual del script original."""
+    from config.db_manager import RealDictCursor
+    body = await request.json()
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        tienda_id = _inventario_resolver_tienda_id(usuario, body.get("tienda"), cursor)
+        _inventario_verificar_activo(tienda_id, cursor)
+        cursor.execute("SELECT pg_advisory_xact_lock(%s)", (tienda_id,))
+
+        cursor.execute("SELECT codigo, COUNT(*) AS cantidad FROM inventario_escaneos WHERE tienda_id = %s GROUP BY codigo", (tienda_id,))
+        conteos = {f["codigo"]: f["cantidad"] for f in cursor.fetchall()}
+        if not conteos:
+            return {"status": "success", "sin_novedad": True, "mensaje": "No hay escaneos nuevos para sumar todavía."}
+        total_escaneos = sum(conteos.values())
+
+        cursor.execute("SELECT id, producto_ref, barcode FROM inventario_productos WHERE tienda_id = %s", (tienda_id,))
+        productos = cursor.fetchall()
+        codigos_usados = set()
+        actualizados = 0
+        for p in productos:
+            cantidad = None
+            if p["producto_ref"] in conteos:
+                cantidad = conteos[p["producto_ref"]]
+                codigos_usados.add(p["producto_ref"])
+            if p["barcode"] in conteos:
+                cantidad = conteos[p["barcode"]]
+                codigos_usados.add(p["barcode"])
+            if cantidad is not None:
+                cursor.execute("UPDATE inventario_productos SET contado_real = contado_real + %s WHERE id = %s", (cantidad, p["id"]))
+                actualizados += 1
+
+        # Un código que no está en la lista de ESTA ubicación no significa que
+        # el producto no exista en Odoo — puede ser un producto real que Odoo
+        # tiene registrado en OTRA tienda/ubicación (por eso el quant de acá no
+        # lo trajo). Antes de darlo por "no reconocido" se busca en Odoo por
+        # barcode: si existe, se suma como un producto más de esta tienda (con
+        # stock_sistema=0, porque acá nunca tuvo quant) — así entra al informe
+        # como "De más" en vez de perderse, y sí se manda en el ajuste a Odoo.
+        # Solo se guarda como "no reconocido" el código que Odoo tampoco conoce.
+        codigos_nuevos = [c for c in conteos if c not in codigos_usados]
+        encontrados_en_odoo = {}
+        if codigos_nuevos:
+            try:
+                uid, models, tz_odoo = _chat_conectar_odoo()
+                productos_odoo = models.execute_kw(
+                    ODOO_DB, uid, ODOO_PASSWORD, 'product.product', 'search_read',
+                    [[['barcode', 'in', codigos_nuevos]]],
+                    {'fields': ['id', 'name', 'display_name', 'barcode']}
+                )
+                for p in productos_odoo or []:
+                    encontrados_en_odoo[p['barcode']] = p
+            except Exception:
+                pass  # si Odoo no responde acá, se degrada a "no reconocido" sin frenar el Sumar
+
+        agregados_de_otra_ubicacion = 0
+        no_reconocidos = 0
+        for c in codigos_nuevos:
+            cantidad = conteos[c]
+            p = encontrados_en_odoo.get(c)
+            if p:
+                nombre_limpio = _inventario_limpiar_nombre(p.get('name') or p.get('display_name'), c)
+                cursor.execute("""
+                    INSERT INTO inventario_productos (tienda_id, producto_ref, nombre, barcode, stock_sistema, contado_real)
+                    VALUES (%s, %s, %s, %s, 0, %s)
+                    ON CONFLICT (tienda_id, producto_ref) DO UPDATE SET
+                        contado_real = inventario_productos.contado_real + EXCLUDED.contado_real
+                """, (tienda_id, str(p['id']), nombre_limpio, c, cantidad))
+                agregados_de_otra_ubicacion += 1
+            else:
+                cursor.execute("""
+                    INSERT INTO inventario_productos_nuevos (tienda_id, barcode, cantidad, actualizado_en)
+                    VALUES (%s, %s, %s, NOW())
+                    ON CONFLICT (tienda_id, barcode) DO UPDATE SET
+                        cantidad = inventario_productos_nuevos.cantidad + EXCLUDED.cantidad, actualizado_en = NOW()
+                """, (tienda_id, c, cantidad))
+                no_reconocidos += 1
+
+        _inventario_archivar_y_limpiar_escaneos(cursor, tienda_id)
+        conexion.commit()
+        return {
+            "status": "success", "total_escaneos": total_escaneos, "codigos_unicos": len(conteos),
+            "actualizados": actualizados, "de_otra_ubicacion": agregados_de_otra_ubicacion, "no_reconocidos": no_reconocidos,
+            "mensaje": (
+                f"Se procesaron {total_escaneos} escaneo(s) ({len(conteos)} código(s) único(s)): {actualizados} actualizados, "
+                f"{agregados_de_otra_ubicacion} de otra ubicación de Odoo, {no_reconocidos} no reconocidos."
+            ),
+        }
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+@app.post("/api/inventario/deshacer")
+async def inventario_deshacer(request: Request, usuario=Depends(obtener_usuario_actual)):
+    from config.db_manager import RealDictCursor
+    body = await request.json()
+    sesion_id = (body.get("sesion_id") or "").strip()
+    if not sesion_id:
+        raise HTTPException(status_code=400, detail="Falta la sesión.")
+
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        tienda_id = _inventario_resolver_tienda_id(usuario, body.get("tienda"), cursor)
+        _inventario_verificar_activo(tienda_id, cursor)
+        cursor.execute("""
+            SELECT id, codigo FROM inventario_escaneos
+            WHERE tienda_id = %s AND sesion_id = %s ORDER BY creado_en DESC, id DESC LIMIT 1
+        """, (tienda_id, sesion_id))
+        fila = cursor.fetchone()
+        if not fila:
+            raise HTTPException(status_code=404, detail="No hay ningún escaneo tuyo para deshacer.")
+        cursor.execute("DELETE FROM inventario_escaneos WHERE id = %s", (fila["id"],))
+        conexion.commit()
+        return {"status": "success", "codigo": fila["codigo"]}
+    except HTTPException:
+        raise
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+@app.get("/api/inventario/historial-sesion")
+def inventario_historial_sesion(sesion_id: str, tienda: str = None, usuario=Depends(obtener_usuario_actual)):
+    from config.db_manager import RealDictCursor
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        tienda_id = _inventario_resolver_tienda_id(usuario, tienda, cursor)
+        _inventario_verificar_activo(tienda_id, cursor)
+        cursor.execute("""
+            SELECT codigo, ubicacion, creado_en FROM inventario_escaneos
+            WHERE tienda_id = %s AND sesion_id = %s ORDER BY creado_en DESC LIMIT 15
+        """, (tienda_id, sesion_id))
+        return [{"codigo": r["codigo"], "ubicacion": r["ubicacion"], "hora": r["creado_en"].strftime("%H:%M:%S")} for r in cursor.fetchall()]
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+@app.get("/api/inventario/historial-dia")
+def inventario_historial_dia(tienda: str = None, ubicacion: str = None, usuario=Depends(obtener_usuario_actual)):
+    from config.db_manager import RealDictCursor
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        tienda_id = _inventario_resolver_tienda_id(usuario, tienda, cursor)
+        _inventario_verificar_activo(tienda_id, cursor)
+        condiciones = ["tienda_id = %s", "archivado_en::date = CURRENT_DATE"]
+        parametros = [tienda_id]
+        if ubicacion:
+            condiciones.append("ubicacion = %s")
+            parametros.append(ubicacion)
+        cursor.execute(f"""
+            SELECT codigo, COUNT(*) AS cantidad, COUNT(DISTINCT sesion_id) AS operarios
+            FROM inventario_escaneos_archivo WHERE {' AND '.join(condiciones)}
+            GROUP BY codigo ORDER BY cantidad DESC
+        """, parametros)
+        filas = cursor.fetchall()
+        return {
+            "total_escaneos": sum(f["cantidad"] for f in filas),
+            "codigos": [{"codigo": f["codigo"], "cantidad": f["cantidad"], "operarios": f["operarios"]} for f in filas],
+        }
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+@app.get("/api/inventario/operarios-activos")
+def inventario_operarios_activos(tienda: str = None, usuario=Depends(obtener_usuario_actual)):
+    from config.db_manager import RealDictCursor
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        tienda_id = _inventario_resolver_tienda_id(usuario, tienda, cursor)
+        _inventario_verificar_activo(tienda_id, cursor)
+        cursor.execute("SELECT COUNT(DISTINCT sesion_id) AS n FROM inventario_escaneos WHERE tienda_id = %s", (tienda_id,))
+        return {"activos": cursor.fetchone()["n"]}
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+@app.get("/api/inventario/informe")
+def inventario_informe(tienda: str = None, usuario=Depends(obtener_usuario_actual)):
+    from config.db_manager import RealDictCursor
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        tienda_id = _inventario_resolver_tienda_id(usuario, tienda, cursor)
+        _inventario_verificar_activo(tienda_id, cursor)
+        cursor.execute("""
+            SELECT producto_ref, nombre, barcode, stock_sistema, contado_real
+            FROM inventario_productos WHERE tienda_id = %s ORDER BY nombre
+        """, (tienda_id,))
+        faltantes, de_mas, correctos = [], [], []
+        for f in cursor.fetchall():
+            diferencia = f["contado_real"] - f["stock_sistema"]
+            item = {
+                "producto_ref": f["producto_ref"], "nombre": f["nombre"], "barcode": f["barcode"],
+                "stock_sistema": f["stock_sistema"], "contado_real": f["contado_real"], "diferencia": diferencia,
+            }
+            if diferencia < 0:
+                faltantes.append(item)
+            elif diferencia > 0:
+                de_mas.append(item)
+            elif f["contado_real"] > 0:
+                correctos.append(item)
+
+        cursor.execute("SELECT barcode, cantidad, actualizado_en FROM inventario_productos_nuevos WHERE tienda_id = %s ORDER BY actualizado_en DESC", (tienda_id,))
+        nuevos = [{"barcode": r["barcode"], "cantidad": r["cantidad"], "actualizado_en": r["actualizado_en"].strftime("%Y-%m-%d %H:%M")} for r in cursor.fetchall()]
+
+        if not faltantes and not de_mas and not nuevos and not correctos:
+            return {"status": "success", "sin_datos": True, "faltantes": [], "de_mas": [], "nuevos": [], "correctos": []}
+        return {"status": "success", "sin_datos": False, "faltantes": faltantes, "de_mas": de_mas, "nuevos": nuevos, "correctos": correctos}
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+def _inventario_crear_ajuste_odoo(uid, models, location_id, termino, lineas):
+    """Núcleo que arma el ajuste en Odoo — crea/actualiza los stock.quant y el
+    stock.inventory correspondiente, en estado 'En progreso' (nunca se aplica
+    solo: queda listo para que alguien lo revise y confirme en el propio Odoo).
+    TODO se procesa en lotes de 500 — con miles de variantes, una sola llamada
+    gigante agota el tiempo de ejecución/límite de la propia llamada a Odoo."""
+    product_ids = list({l["product_id"] for l in lineas})
+    quants_existentes = []
+    for lote in _inventario_en_lotes(product_ids):
+        resultado = models.execute_kw(
+            ODOO_DB, uid, ODOO_PASSWORD, 'stock.quant', 'search_read',
+            [[['product_id', 'in', lote], ['location_id', '=', location_id]]],
+            {'fields': ['id', 'product_id']}
+        )
+        quants_existentes.extend(resultado or [])
+    mapa_producto_quant = {q['product_id'][0]: q['id'] for q in quants_existentes}
+
+    lineas_sin_quant = [l for l in lineas if l["product_id"] not in mapa_producto_quant]
+    if lineas_sin_quant:
+        for lote in _inventario_en_lotes(lineas_sin_quant):
+            vals_crear = [{"product_id": l["product_id"], "location_id": location_id, "inventory_quantity": l["contado"]} for l in lote]
+            nuevos_ids = models.execute_kw(ODOO_DB, uid, ODOO_PASSWORD, 'stock.quant', 'create', [vals_crear])
+            lista_nuevos_ids = nuevos_ids if isinstance(nuevos_ids, list) else [nuevos_ids]
+            for l, qid in zip(lote, lista_nuevos_ids):
+                mapa_producto_quant[l["product_id"]] = qid
+
+        # Al crear con inventory_quantity directo, Odoo no siempre marca
+        # internamente "inventory_quantity_set" — un write adicional lo fuerza.
+        grupos_nuevos = {}
+        for l in lineas_sin_quant:
+            grupos_nuevos.setdefault(l["contado"], []).append(mapa_producto_quant[l["product_id"]])
+        for cantidad, ids in grupos_nuevos.items():
+            for lote in _inventario_en_lotes(ids):
+                models.execute_kw(ODOO_DB, uid, ODOO_PASSWORD, 'stock.quant', 'write', [lote, {"inventory_quantity": cantidad}])
+
+    ids_sin_quant = {l["product_id"] for l in lineas_sin_quant}
+    lineas_con_quant_previo = [l for l in lineas if l["product_id"] not in ids_sin_quant]
+    grupos = {}
+    for l in lineas_con_quant_previo:
+        grupos.setdefault(l["contado"], []).append(mapa_producto_quant[l["product_id"]])
+    for cantidad, ids in grupos.items():
+        for lote in _inventario_en_lotes(ids):
+            models.execute_kw(ODOO_DB, uid, ODOO_PASSWORD, 'stock.quant', 'write', [lote, {"inventory_quantity": cantidad}])
+
+    todos_los_product_ids = list({l["product_id"] for l in lineas})
+    fecha_texto = datetime.now().strftime("%d/%m/%Y %H:%M")
+    nombre_ajuste = f"Ajuste {termino} {fecha_texto}"
+
+    inventory_id = models.execute_kw(ODOO_DB, uid, ODOO_PASSWORD, 'stock.inventory', 'create', [{
+        "name": nombre_ajuste,
+        "location_ids": [[6, 0, [location_id]]],
+        "product_selection": "manual",
+        "state": "in_progress",
+    }])
+    for lote in _inventario_en_lotes(todos_los_product_ids):
+        models.execute_kw(
+            ODOO_DB, uid, ODOO_PASSWORD, 'stock.inventory', 'write',
+            [[inventory_id], {"product_ids": [[4, pid] for pid in lote]}]
+        )
+    return inventory_id
+
+
+@app.post("/api/inventario/enviar-ajuste-odoo")
+async def inventario_enviar_ajuste_odoo(request: Request, admin=Depends(requerir_admin)):
+    """Envía el conteo a Odoo como un Ajuste de Inventario 'En progreso' —
+    reservado a admin/superadmin (reemplaza la clave de supervisor compartida
+    del script original: acá ya no hace falta, el rol del que hace clic ya
+    demuestra que tiene permiso)."""
+    from config.db_manager import RealDictCursor
+    body = await request.json()
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        tienda_id = _inventario_resolver_tienda_id(admin, body.get("tienda"), cursor)
+        _inventario_verificar_activo(tienda_id, cursor)
+        cursor.execute("SELECT ubicacion FROM inventario_ubicacion_activa WHERE tienda_id = %s", (tienda_id,))
+        fila_ubi = cursor.fetchone()
+        if not fila_ubi:
+            raise HTTPException(status_code=400, detail="No hay ninguna ubicación cargada para esta tienda.")
+        ubicacion = fila_ubi["ubicacion"]
+
+        # SIN filtro de contado > 0: se manda TODA la ubicación, incluidos los
+        # productos que nadie escaneó (contado_real sigue en 0). Si se excluían,
+        # una prenda que no se encontró físicamente nunca se corregía en Odoo
+        # — se quedaba con el stock viejo para siempre en vez de quedar en 0.
+        cursor.execute("SELECT producto_ref, contado_real FROM inventario_productos WHERE tienda_id = %s", (tienda_id,))
+        lineas = [{"product_id": int(r["producto_ref"]), "contado": r["contado_real"]} for r in cursor.fetchall()]
+        if not lineas:
+            raise HTTPException(status_code=400, detail="No hay cantidades contadas para enviar.")
+
+        uid, models, tz_odoo = _chat_conectar_odoo()
+        location_ids = models.execute_kw(
+            ODOO_DB, uid, ODOO_PASSWORD, 'stock.location', 'search',
+            [['|', ['complete_name', 'ilike', ubicacion], ['barcode', '=', ubicacion]]],
+            {'limit': 1}
+        )
+        if not location_ids:
+            raise HTTPException(status_code=404, detail=f"No se encontró la ubicación '{ubicacion}' en Odoo.")
+
+        inventory_id = _inventario_crear_ajuste_odoo(uid, models, location_ids[0], ubicacion, lineas)
+
+        _registrar_auditoria(cursor, admin, "enviar_ajuste_inventario_odoo", f"{ubicacion}: {len(lineas)} producto(s), inventory_id={inventory_id}")
+        conexion.commit()
+        return {"status": "success", "inventory_id": inventory_id, "productos_enviados": len(lineas)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error enviando el ajuste a Odoo: {str(e)}")
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+
 # ─── BLOQUE DE ARRANQUE NORMAL DE UVICORN ───
 if __name__ == "__main__":
     import uvicorn
