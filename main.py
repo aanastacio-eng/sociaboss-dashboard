@@ -921,8 +921,15 @@ async def subir_comprobante_venta(
             raise HTTPException(status_code=403, detail="Esta orden ya fue enviada en el reporte diario y no se puede editar.")
 
     try:
-        from config.drive_manager import subir_archivo_a_drive
+        from config.drive_manager import subir_archivo_a_drive, obtener_carpeta_destino
         from config.db_manager import RealDictCursor
+
+        # La tienda viene del propio registro de Odoo (config_id) que ya trae el
+        # frontend en memoria — YA NO se adivina parseando el orden_id. Antes, un
+        # reembolso como "REEMBOLSO DE Lemaler Village/2943" partía mal el nombre
+        # y creaba una tienda fantasma ("REEMBOLSO DE Lemaler Village") en Postgres.
+        tienda_detectada = tienda.strip() or "Cultura Tejida Local"
+        fecha_hoy = datetime.now().strftime("%Y-%m-%d")
 
         orden_limpia = orden_id.replace("/", "-").replace(" ", "_")
         ruta_t = _ruta_temporal(f"comp_{comprobante.filename}")
@@ -930,21 +937,16 @@ async def subir_comprobante_venta(
         with open(ruta_t, "wb") as b:
             shutil.copyfileobj(comprobante.file, b)
 
-        drive_id = subir_archivo_a_drive(ruta_t, f"COMPROBANTE_{orden_limpia}.{_extension_archivo(comprobante)}", comprobante.content_type)
+        # Organizado en Drive como Año/Tienda/Comprobantes.
+        carpeta_comprobantes_id = obtener_carpeta_destino(fecha_hoy.split("-")[0], tienda_detectada, "Comprobantes")
+        drive_id = subir_archivo_a_drive(ruta_t, f"COMPROBANTE_{orden_limpia}.{_extension_archivo(comprobante)}", comprobante.content_type, carpeta_id=carpeta_comprobantes_id)
 
         if os.path.exists(ruta_t):
             os.remove(ruta_t)
 
-        # La tienda viene del propio registro de Odoo (config_id) que ya trae el
-        # frontend en memoria — YA NO se adivina parseando el orden_id. Antes, un
-        # reembolso como "REEMBOLSO DE Lemaler Village/2943" partía mal el nombre
-        # y creaba una tienda fantasma ("REEMBOLSO DE Lemaler Village") en Postgres.
-        tienda_detectada = tienda.strip() or "Cultura Tejida Local"
-
         conexion = obtener_conexion()
         cursor = conexion.cursor(cursor_factory=RealDictCursor)
-        fecha_hoy = datetime.now().strftime("%Y-%m-%d")
-        
+
         # 🚨 CLAVE: Aseguramos que la tienda exista en Postgres antes de meter la evidencia
         cursor.execute("""
             INSERT INTO tiendas (nombre) VALUES (%s) 
@@ -1391,7 +1393,7 @@ async def registrar_sesion_cierre(
         tienda_nombre = usuario_autenticado["tienda_nombre"]
 
     from config.db_manager import RealDictCursor
-    from config.drive_manager import subir_archivo_a_drive
+    from config.drive_manager import subir_archivo_a_drive, obtener_carpeta_destino
     conexion = obtener_conexion()
     cursor = conexion.cursor(cursor_factory=RealDictCursor)
     
@@ -1456,23 +1458,30 @@ async def registrar_sesion_cierre(
         id_deposito = registro['drive_deposito'] if registro else None
         
         tienda_limpio = tienda_nombre.replace(" ", "-")
-        
+
+        # Se organiza en Drive como Año/Tienda/Cierres — antes todo quedaba
+        # suelto en una sola carpeta plana. Se resuelve una sola vez (no una
+        # por archivo) porque los 3 documentos de este cierre van al mismo
+        # lugar.
+        anio_cierre = fecha.split("-")[0]
+        carpeta_cierres_id = obtener_carpeta_destino(anio_cierre, tienda_nombre, "Cierres")
+
         if archivo_resumen:
             ruta_t = _ruta_temporal(f"resumen_{archivo_resumen.filename}")
             with open(ruta_t, "wb") as b: shutil.copyfileobj(archivo_resumen.file, b)
-            id_resumen = subir_archivo_a_drive(ruta_t, f"{fecha}_{tienda_limpio}_RESUMEN.{_extension_archivo(archivo_resumen)}", archivo_resumen.content_type)
+            id_resumen = subir_archivo_a_drive(ruta_t, f"{fecha}_{tienda_limpio}_RESUMEN.{_extension_archivo(archivo_resumen)}", archivo_resumen.content_type, carpeta_id=carpeta_cierres_id)
             if os.path.exists(ruta_t): os.remove(ruta_t)
 
         if archivo_lote:
             ruta_t = _ruta_temporal(f"lote_{archivo_lote.filename}")
             with open(ruta_t, "wb") as b: shutil.copyfileobj(archivo_lote.file, b)
-            id_lote = subir_archivo_a_drive(ruta_t, f"{fecha}_{tienda_limpio}_LOTE.{_extension_archivo(archivo_lote)}", archivo_lote.content_type)
+            id_lote = subir_archivo_a_drive(ruta_t, f"{fecha}_{tienda_limpio}_LOTE.{_extension_archivo(archivo_lote)}", archivo_lote.content_type, carpeta_id=carpeta_cierres_id)
             if os.path.exists(ruta_t): os.remove(ruta_t)
 
         if archivo_deposito:
             ruta_t = _ruta_temporal(f"deposito_{archivo_deposito.filename}")
             with open(ruta_t, "wb") as b: shutil.copyfileobj(archivo_deposito.file, b)
-            id_deposito = subir_archivo_a_drive(ruta_t, f"{fecha}_{tienda_limpio}_DEPOSITO.{_extension_archivo(archivo_deposito)}", archivo_deposito.content_type)
+            id_deposito = subir_archivo_a_drive(ruta_t, f"{fecha}_{tienda_limpio}_DEPOSITO.{_extension_archivo(archivo_deposito)}", archivo_deposito.content_type, carpeta_id=carpeta_cierres_id)
             if os.path.exists(ruta_t): os.remove(ruta_t)
             
         # "completado" es la decisión del admin (0=pendiente, 1=aprobado, 2=rechazado),
