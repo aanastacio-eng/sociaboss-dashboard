@@ -1022,8 +1022,9 @@
 
                 <hr class="my-2">
 
-                <div id="auditoriaBannerDecidido" class="hidden text-xs bg-slate-100 text-slate-600 border border-slate-200 rounded px-3 py-2 text-center font-semibold flex items-center justify-center gap-1.5">
-                    <svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>Este cierre ya fue evaluado — la decisión es inmutable.
+                <div id="auditoriaBannerDecidido" class="hidden text-xs bg-slate-100 text-slate-600 border border-slate-200 rounded px-3 py-2 flex flex-wrap items-center justify-center gap-2">
+                    <span class="font-semibold inline-flex items-center gap-1.5"><svg class="icono" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>Este cierre ya fue evaluado — la decisión es inmutable.</span>
+                    <button onclick="reabrirCierre()" class="bg-slate-700 hover:bg-slate-800 text-white text-[11px] font-semibold px-2.5 py-1 rounded-md transition-colors">Reabrir para editar</button>
                 </div>
                 <div id="auditoriaAccionesDecision" class="flex gap-2 pt-2">
                     <button id="btnAuditoriaRechazar" onclick="procesarVistoBueno(false)" class="flex-1 bg-rose-600 hover:bg-rose-700 text-white font-bold py-2 rounded-lg text-xs transition-colors inline-flex items-center justify-center gap-1.5">
@@ -4259,6 +4260,27 @@
                 }
             } catch(e) {
                 await mostrarAviso("Error al procesar la validación en el servidor.");
+            }
+        }
+
+        // Único agujero controlado en la inmutabilidad de un cierre ya
+        // evaluado: lo vuelve a Pendiente para que la tienda pueda corregir
+        // o volver a subir sus documentos (ej. la imagen de depósito).
+        async function reabrirCierre() {
+            const confirmado = await mostrarConfirmacion(
+                "Esto vuelve el cierre a \"Pendiente\" — la tienda va a poder volver a subir/corregir sus documentos, y vas a tener que evaluarlo de nuevo. ¿Seguro?",
+                { textoAceptar: "Sí, reabrir" }
+            );
+            if (!confirmado) return;
+            try {
+                const resp = await fetch(`/api/cierres/${ID_CIERRE_ACTUAL_AUDITORIA}/reabrir`, { method: "PUT" });
+                const datos = await resp.json();
+                if (!resp.ok) throw new Error(datos.detail || "No se pudo reabrir el cierre.");
+                mostrarToast("Cierre reabierto — volvió a Pendiente.");
+                cerrarModalAuditoria();
+                cargarHistorialCierres();
+            } catch (e) {
+                await mostrarAviso("Error: " + e.message);
             }
         }
 

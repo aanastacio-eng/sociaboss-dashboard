@@ -1488,6 +1488,8 @@ async def registrar_sesion_cierre(
             "completado": bool(completado),
             "mensaje": "Documentos y órdenes de cierre procesados correctamente."
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
@@ -1676,6 +1678,38 @@ async def validar_cierre(request: Request, admin=Depends(requerir_admin)):
         _registrar_auditoria(cursor, admin, "aprobar_cierre" if aprobado else "rechazar_cierre", f"cierre_id={cierre_id or 'último pendiente'}")
         conexion.commit()
         return {"status": "success", "mensaje": "Estado de cierre actualizado con éxito en PostgreSQL."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cursor.close()
+        conexion.close()
+
+
+@app.put("/api/cierres/{cierre_id}/reabrir")
+async def reabrir_cierre(cierre_id: int, admin=Depends(requerir_admin)):
+    """Único agujero controlado en la inmutabilidad de /validar: un cierre ya
+    Aprobado o Rechazado vuelve a quedar Pendiente, para que la tienda pueda
+    volver a subir/corregir sus documentos (ej. la imagen de depósito) desde
+    /api/cierres/registrar-sesion — ese endpoint ya acepta re-subir mientras
+    completado quede en 0. Reservado a admin/superadmin, y queda auditado."""
+    from config.db_manager import RealDictCursor
+    conexion = obtener_conexion()
+    cursor = conexion.cursor(cursor_factory=RealDictCursor)
+    try:
+        cursor.execute("SELECT completado, fecha, tienda_id FROM cierres_diarios WHERE id = %s", (cierre_id,))
+        registro = cursor.fetchone()
+        if not registro:
+            raise HTTPException(status_code=404, detail="No se encontró ese cierre.")
+        if registro["completado"] not in (1, 2):
+            raise HTTPException(status_code=400, detail="Este cierre ya está pendiente — no hace falta reabrirlo.")
+
+        estado_anterior = "aprobado" if registro["completado"] == 1 else "rechazado"
+        cursor.execute("UPDATE cierres_diarios SET completado = 0 WHERE id = %s", (cierre_id,))
+        _registrar_auditoria(cursor, admin, "reabrir_cierre", f"cierre_id={cierre_id} (estaba {estado_anterior}) — vuelve a pendiente para editar")
+        conexion.commit()
+        return {"status": "success"}
     except HTTPException:
         raise
     except Exception as e:
