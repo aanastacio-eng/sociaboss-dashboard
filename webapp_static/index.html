@@ -1325,7 +1325,7 @@
                 const resp = await fetch("/api/auth/me");
                 if (!resp.ok) throw new Error("sin-sesion");
                 SESION_USUARIO = await resp.json();
-                mostrarApp();
+                mostrarApp(false);
             } catch (e) {
                 mostrarLogin();
             }
@@ -1336,7 +1336,7 @@
             document.getElementById("appShell").classList.add("hidden");
         }
 
-        function mostrarApp() {
+        function mostrarApp(esLoginFresco = false) {
             document.getElementById("pantallaLogin").classList.add("hidden");
             document.getElementById("appShell").classList.remove("hidden");
             aplicarRolEnInterfaz();
@@ -1344,9 +1344,34 @@
             const hoy = new Date().toISOString().split('T')[0];
             document.getElementById("filtroFecha").value = hoy;
 
-            // Siempre se arranca en el Dashboard al iniciar sesión (o al
-            // refrescar) — ya no se recuerda la última pantalla visitada.
-            cambiarPantalla('dashboard');
+            if (esLoginFresco) {
+                // Un login recién hecho a mano (llenaste el formulario) siempre
+                // arranca en el Dashboard, sin importar en qué pantalla haya
+                // quedado guardada una sesión anterior.
+                try { sessionStorage.removeItem("socia_pantalla_actual"); } catch (e) { /* modo privado, etc. */ }
+                cambiarPantalla('dashboard');
+            } else {
+                // Al refrescar (F5) o volver a entrar con la sesión ya activa
+                // (la cookie sigue válida), seguimos en la misma pantalla en la
+                // que estaba — igual que cerrar y volver a abrir el menú. Si esa
+                // pantalla ya no es accesible para el rol actual (ej. cambió de
+                // usuario en la misma pestaña), caemos a "dashboard".
+                const pantallasAdminOSuperior = ['historial', 'usuarios', 'metas'];
+                const pantallasSoloSuperAdmin = ['comisiones', 'auditoria', 'reporteEjecutivo', 'roles'];
+                let pantallaGuardada = 'dashboard';
+                try { pantallaGuardada = sessionStorage.getItem("socia_pantalla_actual") || 'dashboard'; } catch (e) { /* modo privado, etc. */ }
+                const rolActual = SESION_USUARIO.rol;
+                const noEsAdminOSuperior = rolActual !== 'admin' && rolActual !== 'superadmin';
+                if (
+                    (pantallasAdminOSuperior.includes(pantallaGuardada) && noEsAdminOSuperior) ||
+                    (pantallasSoloSuperAdmin.includes(pantallaGuardada) && rolActual !== 'superadmin') ||
+                    (pantallaGuardada === 'kpis' && rolActual === 'admin')
+                ) {
+                    pantallaGuardada = 'dashboard';
+                }
+                cambiarPantalla(pantallaGuardada);
+            }
+
             ejecutarConsultaOdoo();
             actualizarBadgeTareas();
             actualizarBannerInventario();
@@ -1415,7 +1440,7 @@
                 const datos = await resp.json();
                 if (!resp.ok) throw new Error(datos.detail || "No se pudo iniciar sesión.");
                 SESION_USUARIO = datos;
-                mostrarApp();
+                mostrarApp(true);
             } catch (err) {
                 errorEl.innerText = err.message;
                 errorEl.classList.remove("hidden");
@@ -1492,6 +1517,7 @@
 
         async function cerrarSesion() {
             try { await fetch("/api/auth/logout", { method: "POST" }); } catch (e) { /* seguimos igual */ }
+            try { sessionStorage.removeItem("socia_pantalla_actual"); } catch (e) { /* modo privado, etc. */ }
             window.location.reload();
         }
 
@@ -2659,6 +2685,10 @@
                 const grupoPadre = btn.closest('details[data-grupo-nav]');
                 if (activo && grupoPadre) grupoPadre.open = true;
             });
+
+            // Recordamos en qué pantalla estaba para que un refresh (F5) la
+            // mantenga en vez de siempre volver a Dashboard.
+            try { sessionStorage.setItem("socia_pantalla_actual", pantalla); } catch (e) { /* modo privado, etc. */ }
 
             if (pantalla === 'dashboard') cargarDashboard();
             if (pantalla === 'kpis') cargarKPIs();
