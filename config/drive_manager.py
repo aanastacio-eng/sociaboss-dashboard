@@ -1,19 +1,42 @@
 import os
+import json
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
 # Configuración fija que ya validamos
 CREDENTIALS_FILE = "config/credentials.json"
+CREDENTIALS_ENV_VAR = "GOOGLE_CREDENTIALS_JSON"
 GOOGLE_DRIVE_FOLDER_ID = "1ZO7qyyj1iwYWMbrn3DoiyLj92E1pYANW"
 
 def obtener_servicio_drive():
-    """Inicializa y devuelve el servicio de Google Drive API."""
-    if not os.path.exists(CREDENTIALS_FILE):
-        raise FileNotFoundError(f"No se encontró el archivo de credenciales en {CREDENTIALS_FILE}")
-        
+    """Inicializa y devuelve el servicio de Google Drive API.
+
+    En Vercel (y cualquier entorno serverless) el sistema de archivos es
+    de solo lectura, así que no se puede depender de config/credentials.json.
+    Por eso primero se busca la variable de entorno GOOGLE_CREDENTIALS_JSON
+    (con el contenido completo del service account key). Si no existe, se
+    cae al archivo local — así el flujo de desarrollo local no cambia.
+    """
     scopes = ['https://www.googleapis.com/auth/drive']
-    creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=scopes)
+    credenciales_env = os.environ.get(CREDENTIALS_ENV_VAR)
+
+    if credenciales_env:
+        try:
+            info = json.loads(credenciales_env)
+        except json.JSONDecodeError as e:
+            raise ValueError(
+                f"La variable de entorno {CREDENTIALS_ENV_VAR} no contiene un JSON válido: {e}"
+            )
+        creds = Credentials.from_service_account_info(info, scopes=scopes)
+    elif os.path.exists(CREDENTIALS_FILE):
+        creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=scopes)
+    else:
+        raise FileNotFoundError(
+            f"No se encontraron credenciales de Google: falta la variable de entorno "
+            f"{CREDENTIALS_ENV_VAR} y tampoco existe el archivo {CREDENTIALS_FILE}"
+        )
+
     return build('drive', 'v3', credentials=creds)
 
 def _obtener_o_crear_carpeta(service, nombre, carpeta_padre_id):
